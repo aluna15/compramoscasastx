@@ -3,6 +3,7 @@
 import html
 import json
 import re
+import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -27,8 +28,8 @@ PATHS = {
     "/terms": "/terminos-de-uso",
     "/sms-terms": "/terminos-sms",
     "/editorial-policy": "/politica-editorial",
-    "/reviews": "/opiniones",
-    "/resenas": "/opiniones",
+    "/reviews": "/resenas",
+    "/opiniones": "/resenas",
     "/wholesalers": "/mayoristas",
     "/we-buy-houses-dallas": "/compramos-casas-dallas",
     "/we-buy-houses-fort-worth": "/compramos-casas-fort-worth",
@@ -36,14 +37,14 @@ PATHS = {
     "/we-buy-houses-austin": "/compramos-casas-austin",
     "/we-buy-houses-san-antonio": "/compramos-casas-san-antonio",
     "/we-buy-houses-texas": "/compramos-casas-texas",
-    "/we-buy-houses-dfw": "/zonas",
+    "/we-buy-houses-dfw": "/zonas-donde-compramos",
     "/we-buy-houses": "/situaciones",
-    "/areas-we-serve": "/zonas",
+    "/areas-we-serve": "/zonas-donde-compramos",
+    "/zonas": "/zonas-donde-compramos",
     "/sell-house-with-tenants-texas": "/vender-casa-con-inquilinos-texas",
     "/sell-house-job-relocation-texas": "/vender-casa-por-mudanza-texas",
     "/sell-house-to-downsize-texas": "/vender-casa-para-reducir-texas",
     "/sell-house-needing-repairs-texas": "/vender-casa-que-necesita-reparaciones-texas",
-    "/blog/es/vender-casa-tal-como-esta-texas": "/vender-casa-que-necesita-reparaciones-texas",
     "/seller-net-proceeds-calculator": "/calculadora-ganancia-neta",
     "/holding-cost-calculator": "/calculadora-costos-de-mantener",
     "/how-cash-offers-are-calculated": "/como-se-calcula-una-oferta-en-efectivo",
@@ -89,10 +90,10 @@ EN_TWIN = {
     "terminos-de-uso": "/terms",
     "terminos-sms": "/sms-terms",
     "politica-editorial": "/editorial-policy",
-    "opiniones": "/reviews",
+    "resenas": "/reviews",
     "mayoristas": "/wholesalers",
     "situaciones": "/we-buy-houses",
-    "zonas": "/areas-we-serve",
+    "zonas-donde-compramos": "/areas-we-serve",
     "calculadora-ganancia-neta": "/seller-net-proceeds-calculator",
     "calculadora-costos-de-mantener": "/holding-cost-calculator",
     "": "/",
@@ -126,11 +127,84 @@ METROS = [
 ]
 
 
+_ES_CACHE = None
+
+
 def es_dict():
-    text = (CHA / "docs/assets/site.js").read_text(encoding="utf-8")
-    i = text.find("var ES=")
-    obj, _ = json.JSONDecoder().raw_decode(text[i + 7 :])
-    return obj
+    global _ES_CACHE
+    if _ES_CACHE is None:
+        text = (CHA / "docs/assets/site.js").read_text(encoding="utf-8")
+        i = text.find("var ES=")
+        _ES_CACHE, _ = json.JSONDecoder().raw_decode(text[i + 7 :])
+    return _ES_CACHE
+
+
+# Filled in main() before any page is rewritten. English path -> Spanish path on this site.
+OUR_PATHS = set()
+EN_TO_ES = {}
+
+
+def _norm(path):
+    if not path:
+        return "/"
+    if path != "/" and path.endswith("/"):
+        path = path.rstrip("/")
+    return path or "/"
+
+
+def _split_href(href):
+    if href.startswith(EN):
+        rest = href[len(EN):] or "/"
+    elif href.startswith("/") and not href.startswith("//"):
+        rest = href
+    else:
+        return None
+    base, sep, frag = rest.partition("#")
+    query = ""
+    if "?" in base:
+        base, q = base.split("?", 1)
+        query = "?" + q
+    return (base or "/"), query, ("#" + frag) if sep else ""
+
+
+def _has_path(path):
+    return _norm(path) in OUR_PATHS or path in OUR_PATHS
+
+
+def _local_target(base, query, frag):
+    path = _norm(base)
+    if path.startswith("/assets/checklists"):
+        return None
+    if path.startswith("/assets") or path == "/favicon.ico":
+        return base + query + frag
+    if _has_path(path):
+        return path + query + frag
+    mapped = PATHS.get(path) or PATHS.get(base)
+    if mapped:
+        return _norm(mapped) + query + frag
+    if path in EN_TO_ES:
+        return _norm(EN_TO_ES[path]) + query + frag
+    return None
+
+
+def _retarget(href, lang_switch):
+    if href.startswith(("mailto:", "tel:", "sms:", "javascript:", "#")):
+        return href
+    if lang_switch:
+        if href.startswith("/"):
+            return EN + href
+        return href
+    parts = _split_href(href)
+    if parts is None:
+        return href
+    local = _local_target(*parts)
+    if local is not None:
+        return local
+    if href.startswith(EN):
+        return href
+    if href.startswith("/"):
+        return EN + href
+    return href
 
 
 def rewrite(fragment):
@@ -139,14 +213,332 @@ def rewrite(fragment):
         fragment = fragment.replace(f'href="{old}#es"', f'href="{new}"')
         fragment = fragment.replace(f'href="{old}"', f'href="{new}"')
         fragment = fragment.replace(f'href="{old}#', f'href="{new}#')
-    fragment = re.sub(r'href="/vender-mi-casa-rapido-[^"]*"', 'href="/compramos-casas-texas"', fragment)
-    fragment = re.sub(r'href="(/blog/[^"]*)"', r'href="https://www.cashhomeadvisors.com\1"', fragment)
+
+    def fix_anchor(match):
+        tag = match.group(0)
+        hm = re.search(r'href="([^"]*)"', tag)
+        if not hm:
+            return tag
+        href = hm.group(1)
+        new = _retarget(href, "data-lang-switch" in tag)
+        if new != href:
+            tag = tag.replace(f'href="{href}"', f'href="{new}"', 1)
+        return tag
+
+    fragment = re.sub(r"<a\b[^>]*>", fix_anchor, fragment)
     fragment = fragment.replace(
         'href="/assets/checklists/',
         'href="https://www.cashhomeadvisors.com/assets/checklists/',
     )
     fragment = re.sub(r'\sdata-i18n(?:-alt|-al|-ph)?="[^"]*"', '', fragment)
     return fragment
+
+
+def spanish_sources():
+    pages = []
+    for path in (CHA / "docs").rglob("*.html"):
+        head = path.read_text(encoding="utf-8", errors="ignore")[:600]
+        if "<html lang=\"es\"" in head or "<html lang='es'" in head:
+            pages.append(path)
+    return pages
+
+
+def rel_url(path):
+    rel = path.relative_to(CHA / "docs")
+    if rel.name == "index.html":
+        parent = rel.parent.as_posix()
+        return "/" if parent == "." else "/" + parent + "/"
+    return "/" + rel.with_suffix("").as_posix()
+
+
+def prepare_maps():
+    global OUR_PATHS, EN_TO_ES
+    OUR_PATHS = {"/"}
+    EN_TO_ES = {}
+    for path in spanish_sources():
+        url = rel_url(path)
+        OUR_PATHS.add(_norm(url))
+        OUR_PATHS.add(url)
+        text = path.read_text(encoding="utf-8", errors="ignore")[:12000]
+        en = re.search(r'<link rel="alternate" hreflang="en" href="([^"]+)"', text)
+        if not en:
+            continue
+        target = en.group(1)
+        if target.startswith(EN):
+            target = target[len(EN):] or "/"
+        if target.startswith("/"):
+            EN_TO_ES[_norm(target.split("#")[0])] = _norm(url)
+    for slug in (
+        "oferta", "mayoristas", "gracias", "gracias-listada", "politica-editorial",
+        "compramos-casas-austin", "compramos-casas-san-antonio",
+        "vender-casa-con-inquilinos-texas", "vender-casa-por-mudanza-texas",
+        "vender-casa-para-reducir-texas", "vender-casa-que-necesita-reparaciones-texas",
+    ):
+        OUR_PATHS.add("/" + slug)
+
+
+def _es_text(ES, key, fallback):
+    if key not in ES:
+        return fallback
+    val = ES[key]
+    return val if "<" in val else html.escape(val)
+
+
+def apply_es_fragment(fragment, ES):
+    def span(match):
+        return _es_text(ES, match.group(1), match.group(0))
+
+    fragment = re.sub(r'<span data-i18n="([^"]+)">.*?</span>', span, fragment, flags=re.S)
+
+    def tagged(match):
+        tag, key, inner = match.group(1), match.group(2), match.group(3)
+        text = _es_text(ES, key, inner)
+        return f"<{tag}>{text}</{tag}>"
+
+    fragment = re.sub(
+        r"<([a-z0-9]+)\b[^>]*\sdata-i18n=\"([^\"]+)\"[^>]*>([^<]*)</\1>",
+        tagged,
+        fragment,
+    )
+
+    def tag_ph(match):
+        tag = match.group(0)
+        keym = re.search(r'data-i18n-ph="([^"]+)"', tag)
+        if not keym or keym.group(1) not in ES:
+            return tag
+        ph = html.escape(ES[keym.group(1)], quote=True)
+        if re.search(r'placeholder="[^"]*"', tag):
+            return re.sub(r'placeholder="[^"]*"', f'placeholder="{ph}"', tag, count=1)
+        return tag[:-1] + f' placeholder="{ph}">'
+
+    return re.sub(r"<input\b[^>]*>", tag_ph, fragment)
+
+
+def replace_lead_cards(fragment, fid):
+    token = '<div class="card lead-card"'
+    out = []
+    i = 0
+    n = 0
+    while True:
+        j = fragment.find(token, i)
+        if j < 0:
+            out.append(fragment[i:])
+            break
+        out.append(fragment[i:j])
+        pos = j
+        depth = 0
+        end = None
+        while pos < len(fragment):
+            nxt_open = fragment.find("<div", pos)
+            nxt_close = fragment.find("</div>", pos)
+            if nxt_close < 0:
+                break
+            if nxt_open != -1 and nxt_open < nxt_close:
+                depth += 1
+                pos = nxt_open + 4
+            else:
+                depth -= 1
+                pos = nxt_close + len("</div>")
+                if depth == 0:
+                    end = pos
+                    break
+        if end is None:
+            out.append(fragment[j:])
+            break
+        n += 1
+        use = fid if n == 1 else f"{fid}-{n}"
+        out.append(form(use))
+        i = end
+    return "".join(out)
+
+
+def homepage_main(ES):
+    raw = (CHA / "docs/index.html").read_text(encoding="utf-8")
+    main = re.search(r'<main id="main">(.*)</main>', raw, re.S).group(1)
+    main = apply_es_fragment(main, ES)
+    main = replace_lead_cards(main, "hero")
+    main = main.replace("/assets/cha-logo-360.png", "/assets/logo-360.png")
+    main = main.replace("/assets/cha-logo-900.png", "/assets/logo-900.png")
+    return rewrite(main)
+
+
+def faqs_from_html(fragment):
+    faqs = []
+    for match in re.finditer(r"<details><summary>(.*?)</summary><p>(.*?)</p></details>", fragment, re.S):
+        q = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", match.group(1))).strip()
+        a = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", match.group(2))).strip()
+        if q and a:
+            faqs.append({"q": q, "a": a})
+    return faqs
+
+
+def rewrite_jsonld(js):
+    for path in sorted(OUR_PATHS, key=len, reverse=True):
+        if path.startswith("/assets"):
+            continue
+        js = js.replace(EN + path, SITE + path)
+    js = js.replace(EN + "/about#adrian", SITE + "/sobre-nosotros#adrian")
+    js = js.replace(EN + "/about", SITE + "/sobre-nosotros")
+    js = js.replace(EN + "/editorial-policy", SITE + "/politica-editorial")
+    js = js.replace(EN + "/#business", SITE + "/#business")
+    js = js.replace(EN + "/#website", SITE + "/#website")
+    js = js.replace("https://www.cashhomeadvisors.com/assets/cha-logo-360.png", SITE + "/assets/logo-360.png")
+    js = js.replace("https://www.cashhomeadvisors.com/assets/cha-logo-900.png", SITE + "/assets/logo-900.png")
+    js = js.replace("/assets/cha-logo-360.png", "/assets/logo-360.png")
+    js = js.replace("/assets/cha-logo-900.png", "/assets/logo-900.png")
+    js = js.replace('"name": "Cash Home Advisors"', '"name": "Compramos Casas TX"')
+    return js
+
+
+def port_shell(title, desc, path, en_url, main, extra_json, og_image, og_type, calc):
+    url = SITE + path
+    hreflang = (
+        f'<link rel="alternate" hreflang="es" href="{url}">'
+        f'<link rel="alternate" hreflang="en" href="{html.escape(en_url, quote=True)}">'
+        f'<link rel="alternate" hreflang="x-default" href="{html.escape(en_url, quote=True)}">'
+    )
+    desk, drawer = nav()
+    page = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<meta name="description" content="{html.escape(desc)}">
+<link rel="canonical" href="{url}">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="theme-color" content="#1E398C">
+<meta property="og:type" content="{html.escape(og_type)}">
+<meta property="og:site_name" content="Compramos Casas TX">
+<meta property="og:title" content="{html.escape(title)}">
+<meta property="og:description" content="{html.escape(desc)}">
+<meta property="og:url" content="{url}">
+<meta property="og:image" content="{html.escape(og_image, quote=True)}">
+<meta property="og:locale" content="es_US">
+@@JSON@@
+<link rel="icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Oswald:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/site-es.css">
+{hreflang}
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+<header class="hdr">
+ <div class="wrap">
+  <a class="logo" href="/" aria-label="Inicio de Compramos Casas TX"><img src="/assets/logo-360.png" alt="Logotipo de Compramos Casas TX" width="720" height="433"></a>
+  <nav class="mnav" aria-label="Principal">{desk}</nav>
+  <div class="grow"></div>
+  <a class="tel" href="tel:{TEL}"><b>{PHONE}</b><small><span lang="en">We speak English too</span></small></a>
+  <div class="langlink" aria-label="Idioma"><span class="on" aria-current="page">ES</span><a href="{html.escape(en_url, quote=True)}" hreflang="en">EN</a></div>
+  <a class="btn" href="/oferta">Obtenga su oferta</a>
+  <button class="burger" type="button" aria-expanded="false" aria-controls="mdrawer" aria-label="Menú"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+ </div>
+ <div class="drawer" id="mdrawer" hidden>{drawer}<a class="btn" href="/oferta">Obtenga su oferta</a><a class="dcall" href="tel:{TEL}">{PHONE}</a></div>
+</header>
+<main id="main">
+@@MAIN@@
+</main>
+@@FOOTER@@
+@@CALC@@
+</body>
+</html>
+"""
+    return (
+        page.replace("@@JSON@@", extra_json)
+        .replace("@@MAIN@@", main)
+        .replace("@@FOOTER@@", footer())
+        .replace("@@CALC@@", calc)
+    )
+
+
+def port_spanish_pages():
+    banned = ["el mejor", "número 1", "numero 1", "garantiz", "oficina local", "5709 vandalia", "grand prairie, tx 75052"]
+    written = []
+    for src in spanish_sources():
+        raw = src.read_text(encoding="utf-8")
+        title = html.unescape(re.search(r"<title>(.*?)</title>", raw, re.S).group(1)).strip()
+        title = re.sub(r"\s*\|\s*Cash Home Advisors\s*$", " | Compramos Casas TX", title)
+        desc_m = re.search(r'<meta name="description" content="([^"]*)"', raw)
+        desc = html.unescape(desc_m.group(1)) if desc_m else ""
+        main_m = re.search(r'<main id="main">(.*)</main>', raw, re.S)
+        if not main_m:
+            raise SystemExit(f"no main in {src}")
+        main = main_m.group(1)
+        main = main.replace('href="/compramos-casas-texas">Inicio', 'href="/">Inicio')
+        main = main.replace("/assets/cha-logo-360.png", "/assets/logo-360.png")
+        main = main.replace("/assets/cha-logo-900.png", "/assets/logo-900.png")
+        fid = re.sub(r"[^a-z0-9]+", "-", rel_url(src).strip("/"))[:48] or "page"
+        main = replace_lead_cards(main, fid)
+        main = rewrite(main)
+        blob = (title + " " + desc + " " + main).lower()
+        for word in banned:
+            if word in blob:
+                raise SystemExit(f"banned copy in {src.name}: {word}")
+        en = re.search(r'<link rel="alternate" hreflang="en" href="([^"]+)"', raw)
+        en_url = en.group(1) if en else EN + "/"
+        if en_url.startswith("/"):
+            en_url = EN + en_url
+        og_type_m = re.search(r'<meta property="og:type" content="([^"]+)"', raw)
+        og_type = og_type_m.group(1) if og_type_m else "website"
+        og_m = re.search(r'<meta property="og:image" content="([^"]+)"', raw)
+        og = SITE + "/assets/logo-900.png"
+        if og_m:
+            og = og_m.group(1).split("?")[0].replace(EN, SITE)
+            og = og.replace("/assets/cha-logo-360.png", "/assets/logo-360.png")
+            og = og.replace("/assets/cha-logo-900.png", "/assets/logo-900.png")
+        blocks = []
+        for block in re.findall(r'<script type="application/ld\+json">(.*?)</script>', raw, re.S):
+            blocks.append("<script type=\"application/ld+json\">" + rewrite_jsonld(block.strip()) + "</script>")
+        calc = '<script src="/assets/calc.js"></script>' if "calc.js" in raw else ""
+        path = rel_url(src)
+        html_out = port_shell(title, desc, path, en_url, main, "\n".join(blocks), og, og_type, calc)
+        dest = DOCS / src.relative_to(CHA / "docs")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(html_out, encoding="utf-8")
+        written.append(path)
+    return written
+
+
+def copy_media():
+    src_assets = CHA / "docs/assets"
+    dst_assets = DOCS / "assets"
+    for sub in ("photos", "og"):
+        src = src_assets / sub
+        if not src.is_dir():
+            continue
+        dest = dst_assets / sub
+        dest.mkdir(parents=True, exist_ok=True)
+        for item in src.iterdir():
+            if item.is_file():
+                target = dest / item.name
+                if not target.exists() or target.stat().st_size != item.stat().st_size:
+                    shutil.copy2(item, target)
+    calc = src_assets / "calc.js"
+    if calc.exists():
+        shutil.copy2(calc, dst_assets / "calc.js")
+    head = src_assets / "adrian-luna-headshot.webp"
+    if head.exists() and not (dst_assets / "adrian-luna-headshot.webp").exists():
+        shutil.copy2(head, dst_assets / "adrian-luna-headshot.webp")
+
+
+def check_internal_links():
+    missing = []
+    for path in DOCS.rglob("*.html"):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for href in re.findall(r'href="(/[^"]*)"', text):
+            bare = href.split("#", 1)[0].split("?", 1)[0]
+            if bare.startswith("/assets") or bare in ("/favicon.ico", "/", ""):
+                continue
+            rel = bare.lstrip("/")
+            options = [DOCS / rel, DOCS / (rel + ".html"), DOCS / rel / "index.html"]
+            if not any(opt.exists() for opt in options):
+                missing.append((path.relative_to(DOCS).as_posix(), href))
+    return missing
 
 
 def extract_prose(path):
@@ -164,8 +556,6 @@ def load_landers():
         if data.get("lang") != "es":
             continue
         slug = data["slug"]
-        if slug == "resenas":
-            slug = "opiniones"
         pages.append({
             "slug": slug,
             "title": data["title"],
@@ -208,21 +598,30 @@ def nav():
     )
     about = (
         item("/sobre-nosotros", "Sobre Adrian")
-        + item("/opiniones", "Opiniones")
+        + item("/resenas", "Opiniones")
         + item("/contacto", "Contacto")
         + item("/mayoristas", "Mayoristas")
     )
+    blog = (
+        item("/blog/es/category/selling", "Vender su casa")
+        + item("/blog/es/category/foreclosure", "Embargo y deudas")
+        + item("/blog/es/category/inherited", "Herencias y sucesiones")
+        + item("/blog/es/category/squatters-vacant", "Ocupantes ilegales y casas vacías")
+        + item("/blog/es/", "Todas las guías")
+    )
     chev = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>'
     desk = (
-        f'<div class="dd"><a class="top" href="/zonas">Dónde compramos{chev}</a><div class="menu">{metros}{item("/zonas","Todas las áreas")}</div></div>'
+        f'<div class="dd"><a class="top" href="/zonas-donde-compramos">Dónde compramos{chev}</a><div class="menu">{metros}{item("/zonas-donde-compramos","Todas las áreas")}</div></div>'
         f'<div class="dd"><a class="top" href="/situaciones">Situaciones{chev}</a><div class="menu">{sits}</div></div>'
         f'<div class="dd"><a class="top" href="/como-funciona">Proceso{chev}</a><div class="menu">{process}</div></div>'
+        f'<div class="dd"><a class="top" href="/blog/es/">Guías{chev}</a><div class="menu">{blog}</div></div>'
         f'<div class="dd"><a class="top" href="/sobre-nosotros">Nosotros{chev}</a><div class="menu">{about}</div></div>'
     )
     drawer = (
         f'<details><summary>Dónde compramos{chev}</summary><div>{metros}</div></details>'
         f'<details><summary>Situaciones{chev}</summary><div>{sits}</div></details>'
         f'<details><summary>Proceso{chev}</summary><div>{process}</div></details>'
+        f'<details><summary>Guías{chev}</summary><div>{blog}</div></details>'
         f'<details><summary>Nosotros{chev}</summary><div>{about}</div></details>'
     )
     return desk, drawer
@@ -230,7 +629,7 @@ def nav():
 
 def footer():
     where = "".join(f"<li><a href=\"{h}\">{html.escape(l)}</a></li>" for h, l in METROS[:5])
-    where += '<li><a href="/zonas">Todas las áreas</a></li>'
+    where += '<li><a href="/zonas-donde-compramos">Todas las áreas</a></li>'
     sits = "".join(f"<li><a href=\"{h}\">{html.escape(l)}</a></li>" for h, l in SITS)
     sits += '<li><a href="/situaciones">Todas las situaciones</a></li>'
     return f"""
@@ -252,7 +651,8 @@ def footer():
      <li><a href="/formas-de-vender">Formas de vender</a></li>
      <li><a href="/preguntas-frecuentes">Preguntas</a></li>
      <li><a href="/por-que-nosotros">Por qué nosotros</a></li>
-     <li><a href="/opiniones">Opiniones</a></li>
+     <li><a href="/resenas">Opiniones</a></li>
+     <li><a href="/blog/es/">Guías</a></li>
      <li><a href="/contacto">Contacto</a></li>
      <li><a href="/mayoristas">Mayoristas</a></li>
      <li><a href="{EN}/">Sitio en inglés</a></li>
@@ -520,45 +920,8 @@ def extra_pages(ES):
     ]
     sits_list = "".join(f'<li><a href="{h}">{html.escape(l)}</a></li>' for h, l in SITS)
     metros_list = "".join(f'<li><a href="{h}">{html.escape(l)}</a></li>' for h, l in METROS)
-    home_body = f"""
-<section class="hero home-offer-hero" id="hero">
- <picture><source media="(max-width: 640px)" srcset="/assets/photos/moving-day-640.jpg"><img class="hero-img" src="/assets/photos/moving-day.jpg" width="1152" height="864" alt="Cajas de mudanza y una planta junto a una puerta principal abierta"></picture>
- <div class="wrap"><div class="proof-national-card">
-  <h1>Venda su casa rápido por dinero en efectivo</h1>
-  <ul class="proof-national-points">
-   <li>Venda tal como está, sin reparaciones</li>
-   <li>Sin comisiones de agente</li>
-   <li>Pagamos todos los gastos de cierre</li>
-  </ul>
-  {form('hero')}
- </div></div>
-</section>
-<div class="claimsbar"><div class="wrap"><ul>
- <li>Cierre en 7 a 14 días</li>
- <li>Pagamos todos los gastos de cierre</li>
- <li>Venda tal como está, sin reparaciones</li>
- <li>Sin comisiones de agente</li>
-</ul></div></div>
-<section id="why"><div class="why-photo" aria-hidden="true"><img src="/assets/photos/older-texas-home.webp" alt="" width="1280" height="720"></div>
- <div class="wrap"><div class="kicker"><h2>Por qué vendernos</h2></div>
- <div class="bens">
-  <article class="ben"><h3>Cierre en 7 a 14 días</h3><p>Es una venta en efectivo, así que no depende de un préstamo bancario.</p></article>
-  <article class="ben"><h3>Venda tal como está, sin reparaciones</h3><p>No tiene que arreglar el techo, la cimentación ni el interior antes de hablar con nosotros.</p></article>
-  <article class="ben"><h3>Pagamos todos los gastos de cierre</h3><p>Sin comisiones de agente. El saldo de su préstamo y los gravámenes se pagan del precio al cerrar.</p></article>
-  <article class="ben"><h3>Gratis, sin compromiso</h3><p>Una persona real le devuelve la llamada, en español o en inglés.</p></article>
- </div></div>
-</section>
-<section class="alt" id="steps"><div class="wrap"><div class="kicker"><h2>De la dirección al cierre</h2><p>Tres pasos, de principio a fin.</p></div>
- <div class="steps"><div class="steps-card">
-  <div class="step-i"><span class="n">1</span><h3>Envíe su dirección</h3><p>Revisamos ventas recientes, reparaciones y gravámenes.</p></div>
-  <div class="step-i"><span class="n">2</span><h3>Reciba una oferta en efectivo</h3><p>Gratis, sin compromiso.</p></div>
-  <div class="step-i"><span class="n">3</span><h3>Cierre y reciba su dinero</h3><p>Cierre en una compañía de títulos de Texas en 7 a 14 días. Pagamos todos los gastos de cierre.</p></div>
- </div><p><a class="btn" href="/como-funciona">Vea cómo funciona</a></p></div></div>
-</section>
-<section id="situations"><div class="wrap"><div class="kicker"><h2>Situaciones en las que ayudamos</h2></div><ul class="tags">{sits_list}</ul></div></section>
-<section class="alt" id="areas"><div class="wrap"><div class="kicker"><h2>Dónde compramos</h2></div><ul class="tags">{metros_list}</ul></div></section>
-{faq_html(core_faq)}
-"""
+    home_body = homepage_main(ES)
+    home_faq = faqs_from_html(home_body) or core_faq
     pages = [{
         "slug": "",
         "title": "Compramos casas en Texas en efectivo | Compramos Casas TX",
@@ -566,7 +929,7 @@ def extra_pages(ES):
         "h1": "Venda su casa rápido por dinero en efectivo",
         "sub": "",
         "body": home_body,
-        "faq": core_faq,
+        "faq": home_faq,
         "home": True,
     }, {
         "slug": "como-funciona",
@@ -667,7 +1030,7 @@ def extra_pages(ES):
 <p>Compramos Casas TX es el nombre de este sitio. La empresa es Cash Home Advisors, LLC. Adrian Luna es el fundador y es agente de bienes raíces con licencia en el Estado de Texas (TREC #675272-SA).</p>
 <p>En una venta en efectivo, Cash Home Advisors, LLC compra como principal. No actúa como su agente, prestamista ni asesor. Podemos comprar la casa nosotros mismos o con un inversionista socio, y le decimos cuál antes de que firme. Cada venta cierra en una compañía de títulos de Texas con un contrato estándar TREC.</p>
 <p>Puede hacer la llamada, la oferta y las preguntas del cierre en español. También atendemos en inglés en <a href="{EN}/">cashhomeadvisors.com</a>.</p>
-<p>Los comentarios de vendedores están en el perfil público de Google, no en esta página. Léalos en <a href="/opiniones">Opiniones</a>.</p>
+<p>Los comentarios de vendedores están en el perfil público de Google, no en esta página. Léalos en <a href="/resenas">Opiniones</a>.</p>
 """,
         "faq": [{"q": ES["faq.8q"], "a": ES["faq.8a"]}],
         "home": False,
@@ -1011,6 +1374,7 @@ footer .fbrand img{height:96px;width:auto}
 .tags a{display:inline-block;background:#fff;border:1px solid #e6eaf4;border-radius:999px;padding:8px 14px;text-decoration:none;font-weight:700}
 .hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .home-offer-hero{position:relative}
+.founder img[src$="logo-360.png"]{width:184px;height:auto;border-radius:0;background:none;object-fit:contain}
 """
     (DOCS / "assets/site-es.css").write_text(extra, encoding="utf-8")
 
@@ -1028,6 +1392,7 @@ def lint(pages):
 
 
 def main():
+    prepare_maps()
     ES = es_dict()
     pages = extra_pages(ES)
     have = {p["slug"] for p in pages}
@@ -1040,13 +1405,22 @@ def main():
     desk, drawer = nav()
     write_site_js()
     write_css()
-    urls = []
+    ported_rels = {p.relative_to(CHA / "docs").as_posix() for p in spanish_sources()}
+    skip_slugs = {"zonas", "opiniones"}
     for page in pages:
         slug = page["slug"]
-        folder = DOCS if not slug else DOCS
+        if slug in skip_slugs:
+            continue
         name = "index.html" if not slug else slug + ".html"
-        (folder / name).write_text(page_html(page, desk, drawer), encoding="utf-8")
-        urls.append(SITE + "/" if not slug else SITE + "/" + slug)
+        if name in ported_rels:
+            continue
+        (DOCS / name).write_text(page_html(page, desk, drawer), encoding="utf-8")
+    ported = port_spanish_pages()
+    copy_media()
+    for stale in ("zonas.html", "opiniones.html"):
+        stale_path = DOCS / stale
+        if stale_path.exists():
+            stale_path.unlink()
     not_found = page_html({
         "slug": "404",
         "title": "Página no encontrada",
@@ -1064,6 +1438,19 @@ def main():
         encoding="utf-8",
     )
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
+    urls = []
+    for path in sorted(DOCS.rglob("*.html")):
+        if path.name == "404.html":
+            continue
+        rel = path.relative_to(DOCS)
+        if rel.name == "index.html":
+            parent = rel.parent.as_posix()
+            urls.append(SITE + "/" if parent == "." else SITE + "/" + parent + "/")
+        else:
+            urls.append(SITE + "/" + rel.with_suffix("").as_posix())
+    missing = check_internal_links()
+    if missing:
+        raise SystemExit("missing internal links: " + repr(missing[:30]) + f" count={len(missing)}")
     body = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for url in urls:
         body.append(f"<url><loc>{url}</loc></url>")
@@ -1089,7 +1476,7 @@ def main():
     for url in urls:
         lines.append("- " + url)
     (DOCS / "llms.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"pages {len(pages)}")
+    print(f"ported {len(ported)} sitemap {len(urls)}")
 
 
 if __name__ == "__main__":
