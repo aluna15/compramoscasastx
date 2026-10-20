@@ -434,7 +434,6 @@ def port_shell(title, desc, path, en_url, main, extra_json, og_image, og_type, c
   <nav class="mnav" aria-label="Principal">{desk}</nav>
   <div class="grow"></div>
   <a class="tel" href="tel:{TEL}"><b>{PHONE}</b><small><span lang="en">We speak English too</span></small></a>
-  <div class="langlink" aria-label="Idioma"><span class="on" aria-current="page">ES</span><a href="{html.escape(en_url, quote=True)}" hreflang="en">EN</a></div>
   <a class="btn" href="/oferta">Obtenga su oferta</a>
   <button class="burger" type="button" aria-expanded="false" aria-controls="mdrawer" aria-label="Menú"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
  </div>
@@ -894,7 +893,6 @@ def page_html(page, desk, drawer):
   <nav class="mnav" aria-label="Principal">{desk}</nav>
   <div class="grow"></div>
   <a class="tel" href="tel:{TEL}"><b>{PHONE}</b><small><span lang="en">We speak English too</span></small></a>
-  <div class="langlink" aria-label="Idioma"><span class="on" aria-current="page">ES</span><a href="{EN}{en_path}" hreflang="en">EN</a></div>
   <a class="btn" href="/oferta">Obtenga su oferta</a>
   <button class="burger" type="button" aria-expanded="false" aria-controls="mdrawer" aria-label="Menú"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
  </div>
