@@ -14,6 +14,7 @@ EN = "https://www.cashhomeadvisors.com"
 PHONE = "(817) 520-8319"
 TEL = "+18175208319"
 EMAIL = "adrian@cashhomeadvisors.com"
+GA4_ID = "G-BJY8TC7V1C"
 # Facts a Spanish answer can quote. Approved claims only; no ranking, no address.
 ORG_DESCRIPTION = (
     "Compramos Casas TX es el sitio en español de Cash Home Advisors, LLC. "
@@ -454,6 +455,23 @@ def rewrite_jsonld(js):
     return js
 
 
+def ga4_snippet():
+    """Same measurement ID as cashhomeadvisors.com. US visits are measured. EU/UK stay opted out."""
+    regions = (
+        '["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT","LV","LT","LU",'
+        '"MT","NL","PL","PT","RO","SK","SI","ES","SE","IS","LI","NO","GB","CH"]'
+    )
+    return f"""<script async src="https://www.googletagmanager.com/gtag/js?id={GA4_ID}"></script>
+<script>window.dataLayer=window.dataLayer||[];function gtag(){{dataLayer.push(arguments);}}
+gtag('consent','default',{{ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',analytics_storage:'denied',region:{regions}}});
+gtag('js',new Date());
+gtag('set',{{page_language:'es'}});
+gtag('config',{json.dumps(GA4_ID)},{{page_location:location.href.replace(/([?&])ref=[^&#]*&?/,'$1').replace(/[?&](#|$)/,'$1'),allow_google_signals:false,allow_ad_personalization_signals:false}});
+document.addEventListener('click',function(e){{var a=e.target.closest&&e.target.closest('a[href^="tel:"],a[href^="sms:"]');if(!a)return;
+var w=a.closest('header,footer,.stickybar,.panel');
+gtag('event',a.getAttribute('href').indexOf('tel:')===0?'click_to_call':'click_to_text',{{link_location:w?(w.classList[0]||w.tagName.toLowerCase()):'body'}});}},true);</script>"""
+
+
 def port_shell(title, desc, path, en_url, main, extra_json, og_image, og_type, calc):
     url = SITE + path
     hreflang = (
@@ -489,6 +507,7 @@ def port_shell(title, desc, path, en_url, main, extra_json, og_image, og_type, c
 <link rel="stylesheet" href="/assets/site.css">
 <link rel="stylesheet" href="/assets/site-es.css">
 {hreflang}
+{ga4_snippet()}
 </head>
 <body>
 <a class="skip" href="#main">Saltar al contenido</a>
@@ -959,6 +978,7 @@ def page_html(page, desk, drawer):
 <link rel="stylesheet" href="/assets/site.css">
 <link rel="stylesheet" href="/assets/site-es.css">
 {hreflang}
+{ga4_snippet()}
 </head>
 <body>
 <a class="skip" href="#main">Saltar al contenido</a>
@@ -1427,6 +1447,7 @@ def write_site_js():
         .then(function(r){
           if (!r.ok) throw new Error('bad');
           var to = data.listed_with_realtor === 'yes' ? '/gracias-listada' : '/gracias';
+          if (window.gtag) gtag('event','generate_lead',{lead_source:'web_form',listed:data.listed_with_realtor||'',page_language:'es'});
           location.href = to;
         })
         .catch(function(){

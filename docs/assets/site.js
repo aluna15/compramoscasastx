@@ -69,6 +69,7 @@
         .then(function(r){
           if (!r.ok) throw new Error('bad');
           var to = data.listed_with_realtor === 'yes' ? '/gracias-listada' : '/gracias';
+          if (window.gtag) gtag('event','generate_lead',{lead_source:'web_form',listed:data.listed_with_realtor||'',page_language:'es'});
           location.href = to;
         })
         .catch(function(){
