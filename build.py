@@ -732,6 +732,8 @@ def form(fid):
    <input id="name-{fid}" name="name" required autocomplete="name">
    <label for="phone-{fid}">Número de teléfono</label>
    <input id="phone-{fid}" name="phone" type="tel" required autocomplete="tel">
+   <label for="price-{fid}">¿Qué precio está buscando?</label>
+   <input id="price-{fid}" name="asking_price" required autocomplete="off">
    <label for="email-{fid}">Correo electrónico (opcional)</label>
    <input id="email-{fid}" name="email" type="email" autocomplete="email">
    <div class="consent"><input type="checkbox" name="consent" required id="consent-{fid}">
@@ -1347,9 +1349,14 @@ def write_site_js():
       data.lead_note = ['Compramos Casas TX lead (seller)',
         'CONSENT: '+(data.consent==='on'?'consent box checked, '+data.consent_ts:'not checked'),
         'Name: '+(data.name||''), 'Phone: '+(data.phone||''), 'Email: '+(data.email||''),
-        'Property: '+(data.address||''), 'Listed: '+(data.listed_with_realtor||''),
+        'Property: '+(data.address||''),
+        'Price they are looking for: '+(data.asking_price||''),
+        'Listed: '+(data.listed_with_realtor||''),
         'Situation: '+(data.situation||''), 'Timeline: '+(data.timeline||''),
         'Page: '+data.page_url].join('\n');
+      data.lead_note_html = data.lead_note.split('\n').map(function(line){
+        return String(line).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }).join('<br>');
       var btn = form.querySelector('[type=submit]');
       if (btn) btn.disabled = true;
       fetch(ENDPOINT, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)})
