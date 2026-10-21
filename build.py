@@ -270,7 +270,7 @@ def prepare_maps():
             EN_TO_ES[_norm(target.split("#")[0])] = _norm(url)
     for slug in (
         "oferta", "mayoristas", "gracias", "gracias-listada", "politica-editorial",
-        "compramos-casas-austin", "compramos-casas-san-antonio",
+        "compramos-casas-austin", "compramos-casas-san-antonio", "ciudades",
         "vender-casa-con-inquilinos-texas", "vender-casa-por-mudanza-texas",
         "vender-casa-para-reducir-texas", "vender-casa-que-necesita-reparaciones-texas",
     ):
@@ -610,14 +610,14 @@ def nav():
     )
     chev = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>'
     desk = (
-        f'<div class="dd"><a class="top" href="/zonas-donde-compramos">Dónde compramos{chev}</a><div class="menu">{metros}{item("/zonas-donde-compramos","Todas las áreas")}</div></div>'
+        f'<div class="dd"><a class="top" href="/zonas-donde-compramos">Dónde compramos{chev}</a><div class="menu">{metros}{item("/ciudades","Ciudades por área")}{item("/zonas-donde-compramos","Todas las áreas")}</div></div>'
         f'<div class="dd"><a class="top" href="/situaciones">Situaciones{chev}</a><div class="menu">{sits}</div></div>'
         f'<div class="dd"><a class="top" href="/como-funciona">Proceso{chev}</a><div class="menu">{process}</div></div>'
         f'<div class="dd"><a class="top" href="/blog/es/">Guías{chev}</a><div class="menu">{blog}</div></div>'
         f'<div class="dd"><a class="top" href="/sobre-nosotros">Nosotros{chev}</a><div class="menu">{about}</div></div>'
     )
     drawer = (
-        f'<details><summary>Dónde compramos{chev}</summary><div>{metros}</div></details>'
+        f'<details><summary>Dónde compramos{chev}</summary><div>{metros}{item("/ciudades","Ciudades por área")}</div></details>'
         f'<details><summary>Situaciones{chev}</summary><div>{sits}</div></details>'
         f'<details><summary>Proceso{chev}</summary><div>{process}</div></details>'
         f'<details><summary>Guías{chev}</summary><div>{blog}</div></details>'
@@ -628,6 +628,7 @@ def nav():
 
 def footer():
     where = "".join(f"<li><a href=\"{h}\">{html.escape(l)}</a></li>" for h, l in METROS[:5])
+    where += '<li><a href="/ciudades">Ciudades por área</a></li>'
     where += '<li><a href="/zonas-donde-compramos">Todas las áreas</a></li>'
     sits = "".join(f"<li><a href=\"{h}\">{html.escape(l)}</a></li>" for h, l in SITS)
     sits += '<li><a href="/situaciones">Todas las situaciones</a></li>'
@@ -800,7 +801,12 @@ def schema(page, url):
             {"@type": "ListItem", "position": 1, "name": "Inicio", "item": SITE + "/"},
         ],
     }
-    if page["slug"]:
+    if page.get("crumbs"):
+        for i, (name, href) in enumerate(page["crumbs"], start=2):
+            crumbs["itemListElement"].append({
+                "@type": "ListItem", "position": i, "name": name, "item": SITE + href,
+            })
+    elif page["slug"]:
         crumbs["itemListElement"].append({
             "@type": "ListItem", "position": 2, "name": page["h1"], "item": url,
         })
@@ -835,14 +841,17 @@ def page_html(page, desk, drawer):
     slug = page["slug"]
     path = "/" if not slug else f"/{slug}"
     url = SITE + path
-    en_path = EN_TWIN.get(slug, "/")
     title = page["title"] if "|" in page["title"] else page["title"] + " | Compramos Casas TX"
     desc = page["desc"]
-    hreflang = (
-        f'<link rel="alternate" hreflang="es" href="{url}">'
-        f'<link rel="alternate" hreflang="en" href="{EN}{en_path}">'
-        f'<link rel="alternate" hreflang="x-default" href="{EN}{en_path}">'
-    )
+    if page.get("skip_hreflang"):
+        hreflang = ""
+    else:
+        en_path = EN_TWIN.get(slug, "/")
+        hreflang = (
+            f'<link rel="alternate" hreflang="es" href="{url}">'
+            f'<link rel="alternate" hreflang="en" href="{EN}{en_path}">'
+            f'<link rel="alternate" hreflang="x-default" href="{EN}{en_path}">'
+        )
     if page.get("home"):
         main = page["body"]
     else:
@@ -1050,7 +1059,7 @@ def extra_pages(ES):
         "body": f"""
 <p>Cada zona de abajo explica las oficinas de ese condado: el distrito de tasación, la oficina de impuestos y dónde se registra la escritura. La oferta no cambia de idioma.</p>
 <ul>{metros_list}</ul>
-<p>No publicamos una página por cada ciudad. Una página que solo cambia el nombre de la ciudad no le dice nada nuevo. Si su dirección está en Texas y no aparece arriba, use <a href="/oferta">el formulario</a> o llame al {PHONE}.</p>
+<p>Las ciudades de las 26 áreas metropolitanas están en <a href="/ciudades">ciudades por área</a>. Si su dirección está en Texas y no aparece, use <a href="/oferta">el formulario</a> o llame al {PHONE}.</p>
 """,
         "faq": [{"q": "¿Compran fuera de estas ciudades?", "a": "Sí, en otras ciudades de Texas. Pida la oferta con la dirección y le decimos si podemos hacer esa compra."}],
         "home": False,
@@ -1373,15 +1382,396 @@ footer .fbrand img{height:96px;width:auto}
 .hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .home-offer-hero{position:relative}
 .founder img[src$="logo-360.png"]{width:184px;height:auto;border-radius:0;background:none;object-fit:contain}
+.city-index ul{columns:2;padding-left:1.2rem}
+#datos-locales{border-top:1px solid #e6eaf4}
+@media(max-width:700px){.city-index ul{columns:1}}
 """
     (DOCS / "assets/site-es.css").write_text(extra, encoding="utf-8")
+
+
+CITY_JSON = Path("/Users/work/Claude/_cct_metro_build/ciudades.json")
+DRAFT_ROOT = Path("/Users/work/Claude")
+EXISTING_CITY_SLUGS = {
+    "compramos-casas-dallas",
+    "compramos-casas-fort-worth",
+    "compramos-casas-houston",
+    "compramos-casas-austin",
+    "compramos-casas-san-antonio",
+}
+METRO_PAGES = {
+    "Dallas-Fort Worth-Arlington, TX": [
+        ("/compramos-casas-dallas", "Dallas"),
+        ("/compramos-casas-fort-worth", "Fort Worth"),
+    ],
+    "Houston-Pasadena-The Woodlands, TX": [("/compramos-casas-houston", "Houston")],
+    "Austin-Round Rock-San Marcos, TX": [("/compramos-casas-austin", "Austin")],
+    "San Antonio-New Braunfels, TX": [("/compramos-casas-san-antonio", "San Antonio")],
+}
+KIND_CLAUSE = {
+    "city": "Es una ciudad incorporada",
+    "town": "Es un lugar incorporado que el Censo nombra como town",
+    "village": "Es un lugar incorporado que el Censo nombra como village",
+    "CDP": "Es un lugar designado por el Censo (CDP), no es una ciudad incorporada",
+}
+USTED_RE = re.compile(r"\b(tú|tu|puedes|llámanos|llamanos|contáctanos|contactanos)\b", re.I)
+
+
+def _commas(n):
+    return f"{int(n):,}"
+
+
+def _county_plain(name):
+    return name[:-7] if str(name).endswith(" County") else str(name)
+
+
+def _metro_anchor(title):
+    return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+
+
+def _city_slug(city):
+    folder = city["folder"]
+    if not folder.startswith("compramoscasas-"):
+        raise SystemExit(f"unexpected city folder {folder}")
+    return "compramos-casas-" + folder[len("compramoscasas-"):]
+
+
+def _load_cities():
+    cities = json.loads(CITY_JSON.read_text(encoding="utf-8"))["cities"]
+    if len(cities) != 726:
+        raise SystemExit(f"expected 726 cities, got {len(cities)}")
+    return cities
+
+
+def _opening(city):
+    name = city["name"]
+    metro = city["metro"]
+    if city["kind"] == "CDP":
+        return (
+            f"Cash Home Advisors, LLC compra casas en {name}. "
+            f"{name} es ciudad principal de {metro}. "
+            "Es un lugar designado por el Censo (CDP), no es una ciudad incorporada, "
+            "y el archivo Vintage 2025 de lugares incorporados no publica su población. "
+            "El archivo de lugares de 2020 lo ubica en los condados de Harris y de Montgomery. "
+            "Harris figura como Central y Montgomery como Outlying en esa área. "
+            "Venda tal como está, sin reparaciones. Pagamos todos los gastos de cierre y podemos cerrar en 7 a 14 días. "
+            "Sin comisiones de agente. La oferta es gratis, sin compromiso, y una persona real le devuelve la llamada."
+        )
+    pop = _commas(city["pop_2025_07_01"])
+    county = _county_plain(city["primary_county"])
+    role = city["primary_role"]
+    if city["principal"]:
+        rank = f"{name} es ciudad principal de {metro}."
+    else:
+        rank = f"El boletín OMB 23-01 no nombra a {name} como ciudad principal de {metro}."
+    return (
+        f"Cash Home Advisors, LLC compra casas en {name}. "
+        f"{KIND_CLAUSE[city['kind']]}. "
+        f"La estimación del Censo al 1 de julio de 2025 es de {pop} habitantes. "
+        f"La mayor parte de esa población está en el condado de {county}, que figura como {role} en {metro}. "
+        f"{rank} "
+        "Venda tal como está, sin reparaciones. Pagamos todos los gastos de cierre y podemos cerrar en 7 a 14 días. "
+        "Sin comisiones de agente. La oferta es gratis, sin compromiso, y una persona real le devuelve la llamada."
+    )
+
+
+def _city_h1(city):
+    name = city["name"]
+    if city["kind"] == "CDP":
+        return f"Venda su casa en {name}: ciudad principal, CDP en Harris y Montgomery"
+    pop = _commas(city["pop_2025_07_01"])
+    county = _county_plain(city["primary_county"])
+    rank = "ciudad principal" if city["principal"] else "no es ciudad principal"
+    return (
+        f"Venda su casa en {name}: {pop} habitantes, {rank}, "
+        f"figura como {city['primary_role']} en el condado de {county}"
+    )
+
+
+def _city_title(city):
+    name = city["name"]
+    if city["kind"] == "CDP":
+        return (
+            f"Compramos casas en {name}: ciudad principal, CDP en Harris y Montgomery | Compramos Casas TX"
+        )
+    pop = _commas(city["pop_2025_07_01"])
+    county = _county_plain(city["primary_county"])
+    rank = "ciudad principal" if city["principal"] else "no es ciudad principal"
+    return (
+        f"Compramos casas en {name}: {pop} habitantes, {rank}, "
+        f"condado de {county} ({city['primary_role']}) | Compramos Casas TX"
+    )
+
+
+def _city_desc(city):
+    if city["kind"] == "CDP":
+        return (
+            "Compramos casas en The Woodlands, ciudad principal de Houston-Pasadena-The Woodlands. "
+            "El Censo lo ubica como CDP en los condados de Harris y de Montgomery. "
+            "Venda tal como está, sin reparaciones."
+        )
+    pop = _commas(city["pop_2025_07_01"])
+    county = _county_plain(city["primary_county"])
+    rank = "Es ciudad principal" if city["principal"] else "No es ciudad principal"
+    return (
+        f"Compramos casas en {city['name']}, condado de {county}: {pop} habitantes al 1 de julio de 2025. "
+        f"{rank}. El condado figura como {city['primary_role']} en {city['metro']}. "
+        "Venda tal como está, sin reparaciones."
+    )
+
+
+def _extract_facts(city):
+    path = DRAFT_ROOT / city["folder"] / "index.html"
+    raw = path.read_text(encoding="utf-8")
+    match = re.search(r'<section id="ciudad">\s*<div class="wrap">(.*?)</div>\s*</section>', raw, re.S)
+    if not match:
+        raise SystemExit(f"no city facts in {path}")
+    inner = match.group(1)
+    inner = re.sub(r"\s*<p class=\"eyebrow\">.*?</p>", "", inner, count=1, flags=re.S)
+    inner = re.sub(r"\s*<h2>.*?</h2>", "", inner, count=1, flags=re.S)
+    facts = inner.strip()
+    if "noindex" in facts or "compramoscasas" in facts and "compramoscasastx.com" not in facts:
+        raise SystemExit(f"draft boilerplate leaked into facts for {city['name']}")
+    return facts
+
+
+def _related_links(city, slug):
+    anchor = _metro_anchor(city["metro"])
+    links = [
+        f'<a href="/ciudades#{anchor}">{html.escape(city["metro"])}</a>',
+        '<a href="/compramos-casas-texas">todo Texas</a>',
+        '<a href="/oferta">pedir una oferta</a>',
+    ]
+    for href, label in METRO_PAGES.get(city["metro"], []):
+        if href != "/" + slug:
+            links.append(f'<a href="{href}">{html.escape(label)}</a>')
+    key = city["folder"][len("compramoscasas-"):]
+    vender = f"vender-mi-casa-rapido-{key}-tx.html"
+    if (DOCS / vender).exists() or (CHA / "docs" / vender).exists():
+        links.append(
+            f'<a href="/vender-mi-casa-rapido-{key}-tx">vender rápido en {html.escape(city["name"])}</a>'
+        )
+    return "<p>También: " + " · ".join(links) + ".</p>"
+
+
+def _reject_city_copy(slug, blob):
+    banned = [
+        "el mejor", "número 1", "numero 1", "garantiz", "oficina local",
+        "5709 vandalia", "grand prairie, tx 75052", "el más rápido", "la más rápida",
+    ]
+    low = blob.lower()
+    found = [word for word in banned if word in low]
+    if USTED_RE.search(low):
+        found.append("usted")
+    if found:
+        raise SystemExit(f"banned city copy in {slug}: {found}")
+
+
+def metro_city_pages():
+    cities = _load_cities()
+    new_pages = []
+    existing = {}
+    seen_title = {}
+    seen_h1 = {}
+    seen_open = {}
+    groups = {}
+    for city in cities:
+        if city["kind"] != "CDP":
+            if city.get("pop_2025_07_01") is None or not city.get("primary_county") or not city.get("primary_role"):
+                raise SystemExit(f"incomplete city record for {city['name']}")
+        slug = _city_slug(city)
+        title = _city_title(city)
+        h1 = _city_h1(city)
+        opening = _opening(city)
+        for label, value, seen in (
+            ("title", title, seen_title),
+            ("h1", h1, seen_h1),
+            ("opening", opening, seen_open),
+        ):
+            if value in seen:
+                raise SystemExit(f"duplicate {label} for {city['name']} and {seen[value]}")
+            seen[value] = city["name"]
+        facts = _extract_facts(city)
+        _reject_city_copy(slug, title + "\n" + h1 + "\n" + opening + "\n" + facts)
+        groups.setdefault(city["metro"], []).append(city)
+        if slug in EXISTING_CITY_SLUGS:
+            existing[slug] = city
+            continue
+        new_pages.append({
+            "slug": slug,
+            "title": title,
+            "desc": _city_desc(city),
+            "h1": h1,
+            "sub": opening,
+            "body": "<h2>La ciudad y el condado</h2>\n" + facts + "\n" + _related_links(city, slug),
+            "faq": [],
+            "home": False,
+            "skip_hreflang": True,
+            "crumbs": [("Ciudades", "/ciudades"), (city["name"], "/" + slug)],
+        })
+    if len(existing) != 5:
+        raise SystemExit(f"expected 5 existing city pages, found {sorted(existing)}")
+    hub_parts = [
+        "<div class=\"city-index\">",
+        "<p>Estas páginas cubren los lugares incorporados de las 26 áreas metropolitanas de Texas del boletín OMB 23-01, más The Woodlands. "
+        "Cada una trae la población del Censo al 1 de julio de 2025 cuando el archivo la publica, el papel del condado en el área "
+        "y la ficha del distrito de avalúo en el directorio del Contralor. "
+        "Cash Home Advisors, LLC compra casas en Texas. Venda tal como está, sin reparaciones. "
+        "Pagamos todos los gastos de cierre. Si no ve su ciudad, <a href=\"/oferta\">envíenos la dirección</a>.</p>",
+    ]
+    for metro in sorted(groups):
+        rows = sorted(groups[metro], key=lambda row: row["name"])
+        items = []
+        for city in rows:
+            slug = _city_slug(city)
+            if city["kind"] == "CDP":
+                detail = "CDP, ciudad principal, sin población de lugar incorporado"
+            else:
+                rank = "ciudad principal" if city["principal"] else "no es ciudad principal"
+                detail = f"{_commas(city['pop_2025_07_01'])} habitantes, {rank}"
+            items.append(
+                f'<li><a href="/{slug}">{html.escape(city["name"])}</a> — {html.escape(detail)}</li>'
+            )
+        area = ""
+        if metro in METRO_PAGES:
+            area = "<p>Página del área: " + " · ".join(
+                f'<a href="{href}">{html.escape(label)}</a>' for href, label in METRO_PAGES[metro]
+            ) + ".</p>"
+        hub_parts.append(
+            f'<h2 id="{_metro_anchor(metro)}">{html.escape(metro)}</h2>{area}<ul>{"".join(items)}</ul>'
+        )
+    hub_parts.append("</div>")
+    hub = {
+        "slug": "ciudades",
+        "title": "Ciudades de Texas donde compramos casas | Compramos Casas TX",
+        "desc": "Índice de las ciudades incorporadas en las 26 áreas metropolitanas de Texas, más The Woodlands. Cada página trae la población al 1 de julio de 2025 y la ficha del condado.",
+        "h1": "Ciudades de Texas donde compramos casas",
+        "sub": "26 áreas metropolitanas del boletín OMB 23-01, más The Woodlands. Elija su ciudad.",
+        "body": "\n".join(hub_parts),
+        "faq": [],
+        "home": False,
+        "skip_hreflang": True,
+        "crumbs": [("Ciudades", "/ciudades")],
+    }
+    _reject_city_copy("ciudades", hub["title"] + hub["desc"] + hub["h1"] + hub["sub"] + hub["body"])
+    new_pages.append(hub)
+    return new_pages, existing
+
+
+def improve_existing_city_pages(existing):
+    updated = 0
+    for slug, city in existing.items():
+        path = DOCS / f"{slug}.html"
+        if not path.exists():
+            raise SystemExit(f"missing existing city page {path}")
+        text = path.read_text(encoding="utf-8")
+        title = _city_title(city)
+        h1 = _city_h1(city)
+        desc = _city_desc(city)
+        opening = _opening(city)
+        facts = _extract_facts(city)
+        text = re.sub(r"<title>.*?</title>", f"<title>{html.escape(title)}</title>", text, count=1, flags=re.S)
+        text = re.sub(
+            r'(<meta name="description" content=")[^"]*"',
+            lambda m, value=html.escape(desc, quote=True): m.group(1) + value + '"',
+            text,
+            count=1,
+        )
+        text = re.sub(
+            r'(<meta property="og:title" content=")[^"]*"',
+            lambda m, value=html.escape(title, quote=True): m.group(1) + value + '"',
+            text,
+            count=1,
+        )
+        text = re.sub(
+            r'(<meta property="og:description" content=")[^"]*"',
+            lambda m, value=html.escape(desc, quote=True): m.group(1) + value + '"',
+            text,
+            count=1,
+        )
+        text = re.sub(r"<h1>.*?</h1>", f"<h1>{html.escape(h1)}</h1>", text, count=1, flags=re.S)
+        if 'class="local-open"' not in text:
+            text = text.replace("</h1>", "</h1>" + f'<p class="local-open">{html.escape(opening)}</p>', 1)
+        if 'id="datos-locales"' not in text:
+            block = (
+                '<section id="datos-locales"><div class="wrap"><h2>La ciudad y el condado</h2>\n'
+                + facts
+                + "\n"
+                + _related_links(city, slug)
+                + "</div></section>\n"
+            )
+            if "</main>" not in text:
+                raise SystemExit(f"no main in {slug}")
+            text = text.replace("</main>", block + "</main>", 1)
+        if f"<title>{html.escape(title)}</title>" not in text:
+            raise SystemExit(f"title was not updated for {slug}")
+        if city["kind"] != "CDP" and _commas(city["pop_2025_07_01"]) not in text:
+            raise SystemExit(f"population missing after update of {slug}")
+        path.write_text(text, encoding="utf-8")
+        updated += 1
+    return updated
+
+
+def link_area_city_spans():
+    cities = _load_cities()
+    counts = {}
+    name_to_href = {}
+    for city in cities:
+        counts[city["name"]] = counts.get(city["name"], 0) + 1
+    for city in cities:
+        if counts[city["name"]] == 1:
+            name_to_href[city["name"]] = "/" + _city_slug(city)
+    path = DOCS / "zonas-donde-compramos.html"
+    text = path.read_text(encoding="utf-8")
+    before = text.count('<span class="city"')
+
+    def repl(match):
+        name = re.sub(r"\s+", " ", match.group(2)).strip()
+        href = name_to_href.get(name)
+        if not href:
+            return match.group(0)
+        return f'<a class="city" href="{href}">{match.group(1)}{match.group(2)}</a>'
+
+    text = re.sub(r'<span class="city">(<svg.*?</svg>)([^<]*)</span>', repl, text, flags=re.S)
+    note = "Una ciudad sin enlace todavía no tiene su propia página. Igual puede enviarnos la dirección."
+    if note not in text:
+        raise SystemExit("areas page note missing")
+    text = text.replace(
+        note,
+        'El índice de ciudades por área metropolitana está en <a href="/ciudades">ciudades de Texas</a>. Si su ciudad no aparece, envíenos la dirección.',
+    )
+    linked = before - text.count('<span class="city"')
+    if before and linked == 0:
+        raise SystemExit("no area city spans were linked")
+    path.write_text(text, encoding="utf-8")
+    return linked
+
+
+def assert_indexable_city_pages(slugs):
+    bad = []
+    for slug in slugs:
+        text = (DOCS / f"{slug}.html").read_text(encoding="utf-8")
+        canon = re.search(r'<link rel="canonical" href="([^"]+)"', text)
+        expected = f"{SITE}/{slug}"
+        if not canon or canon.group(1) != expected:
+            bad.append((slug, "canonical", None if not canon else canon.group(1)))
+        if "noindex" in text:
+            bad.append((slug, "noindex"))
+        if 'name="brand" value="CCT"' not in text:
+            bad.append((slug, "form"))
+        if "data-lang-switch" in text or ">ES<" in text or ">EN<" in text:
+            bad.append((slug, "language-switch"))
+    if bad:
+        raise SystemExit("city page check failed: " + repr(bad[:12]))
 
 
 def lint(pages):
     banned = ["el mejor", "número 1", "numero 1", "garantiz", "oficina local", "5709 vandalia", "grand prairie, tx 75052"]
     bad = []
     for page in pages:
-        blob = (page["title"] + page["desc"] + page["h1"] + page["body"] + " ".join(q["a"] for q in page.get("faq") or [])).lower()
+        blob = (
+            page["title"] + page["desc"] + page["h1"] + (page.get("sub") or "") + page["body"]
+            + " ".join(q["a"] for q in page.get("faq") or [])
+        ).lower()
         for word in banned:
             if word in blob:
                 bad.append((page["slug"] or "/", word))
@@ -1397,6 +1787,12 @@ def main():
     for page in load_landers():
         if page["slug"] in have:
             continue
+        pages.append(page)
+        have.add(page["slug"])
+    city_pages, existing_cities = metro_city_pages()
+    for page in city_pages:
+        if page["slug"] in have:
+            raise SystemExit(f"city slug collides with an existing page: {page['slug']}")
         pages.append(page)
         have.add(page["slug"])
     lint(pages)
@@ -1419,6 +1815,9 @@ def main():
         stale_path = DOCS / stale
         if stale_path.exists():
             stale_path.unlink()
+    updated_cities = improve_existing_city_pages(existing_cities)
+    linked_spans = link_area_city_spans()
+    assert_indexable_city_pages([page["slug"] for page in city_pages] + list(existing_cities))
     not_found = page_html({
         "slug": "404",
         "title": "Página no encontrada",
@@ -1465,7 +1864,8 @@ def main():
         "Teléfono: (817) 520-8319",
         "Correo: adrian@cashhomeadvisors.com",
         "Licencia: Adrian Luna, agente de bienes raíces de Texas, TREC #675272-SA",
-        "Área: Texas. Dallas–Fort Worth, Houston, San Antonio y Austin.",
+        "Área: Texas, incluidas las 26 áreas metropolitanas del boletín OMB 23-01.",
+        "Índice de ciudades: https://www.compramoscasastx.com/ciudades",
         "",
         "No somos el agente del vendedor en una compra en efectivo. Compramos como principal, solos o con un inversionista socio, y lo decimos antes de la firma. El cierre es en una compañía de títulos de Texas.",
         "",
@@ -1474,7 +1874,10 @@ def main():
     for url in urls:
         lines.append("- " + url)
     (DOCS / "llms.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"ported {len(ported)} sitemap {len(urls)}")
+    print(
+        f"ported {len(ported)} sitemap {len(urls)} "
+        f"new_urls {len(city_pages)} updated_city_pages {updated_cities} area_spans_linked {linked_spans}"
+    )
 
 
 if __name__ == "__main__":
