@@ -14,6 +14,51 @@ EN = "https://www.cashhomeadvisors.com"
 PHONE = "(817) 520-8319"
 TEL = "+18175208319"
 EMAIL = "adrian@cashhomeadvisors.com"
+# Facts a Spanish answer can quote. Approved claims only; no ranking, no address.
+ORG_DESCRIPTION = (
+    "Compramos Casas TX es el sitio en español de Cash Home Advisors, LLC. "
+    "La empresa compra casas en Texas como principal, no como el agente del vendedor. "
+    "Cierre en 7 a 14 días. Pagamos todos los gastos de cierre. "
+    "Venda tal como está, sin reparaciones. Sin comisiones de agente. "
+    "Gratis, sin compromiso. Una persona real le devuelve la llamada."
+)
+_EN_ORG_DESC = (
+    "Cash Home Advisors buys houses for cash in Dallas\u2013Fort Worth, Houston, and across Texas. "
+    "Sell as-is with no repairs and no agent commissions. We pay all closing costs. "
+    "Close in 7\u201314 days. Se habla español."
+)
+ENTITY_ANSWER = (
+    ORG_DESCRIPTION
+    + " Teléfono (817) 520-8319. Adrian Luna, agente de bienes raíces de Texas, TREC #675272-SA."
+)
+QUOTE_PAGES = (
+    "index.html",
+    "como-funciona.html",
+    "compramos-casas-texas.html",
+    "compramos-casas-dallas.html",
+    "compramos-casas-fort-worth.html",
+    "compramos-casas-houston.html",
+    "compramos-casas-san-antonio.html",
+    "compramos-casas-austin.html",
+    "por-que-nosotros.html",
+    "formas-de-vender.html",
+    "preguntas-frecuentes.html",
+    "sobre-nosotros.html",
+    "blog/es/index.html",
+    "ciudades.html",
+)
+LLMS_LINKS = (
+    ("Inicio", SITE + "/"),
+    ("Cómo funciona", SITE + "/como-funciona"),
+    ("Texas", SITE + "/compramos-casas-texas"),
+    ("Dallas", SITE + "/compramos-casas-dallas"),
+    ("Fort Worth", SITE + "/compramos-casas-fort-worth"),
+    ("Houston", SITE + "/compramos-casas-houston"),
+    ("San Antonio", SITE + "/compramos-casas-san-antonio"),
+    ("Austin", SITE + "/compramos-casas-austin"),
+    ("Guías", SITE + "/blog/es/"),
+    ("Ciudades", SITE + "/ciudades"),
+)
 ENDPOINT = "https://services.leadconnectorhq.com/hooks/eRpXDjkyyScY5hEr424s/webhook-trigger/RkJTfvGE7v99bZynCdAE"
 
 PATHS = {
@@ -363,11 +408,18 @@ def homepage_main(ES):
 
 
 def faqs_from_html(fragment):
+    """Read only real questions. A greedy details/summary match was swallowing the nav into the first FAQ."""
+    sect = re.search(r'<section[^>]*\bid="faq"[^>]*>(.*)</section>', fragment, re.S)
+    scope = sect.group(1) if sect else fragment
     faqs = []
-    for match in re.finditer(r"<details><summary>(.*?)</summary><p>(.*?)</p></details>", fragment, re.S):
+    pat = re.compile(
+        r"<details><summary>((?:(?!</summary>).)*)</summary>\s*<p>((?:(?!</p>).)*)</p></details>",
+        re.S,
+    )
+    for match in pat.finditer(scope):
         q = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", match.group(1))).strip()
         a = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", match.group(2))).strip()
-        if q and a:
+        if q.startswith("¿") and a:
             faqs.append({"q": q, "a": a})
     return faqs
 
@@ -387,6 +439,18 @@ def rewrite_jsonld(js):
     js = js.replace("/assets/cha-logo-360.png", "/assets/logo-360.png")
     js = js.replace("/assets/cha-logo-900.png", "/assets/logo-900.png")
     js = js.replace('"name": "Cash Home Advisors"', '"name": "Compramos Casas TX"')
+    # Domain swap above turns /about into a Spanish-host path before the English-host replace runs.
+    js = js.replace(SITE + "/about#adrian", SITE + "/sobre-nosotros#adrian")
+    js = js.replace(SITE + "/editorial-policy", SITE + "/politica-editorial")
+    js = js.replace(SITE + "/about", SITE + "/sobre-nosotros")
+    js = js.replace('"url": "' + EN + '"', '"url": "' + SITE + '/"')
+    js = js.replace(_EN_ORG_DESC, ORG_DESCRIPTION)
+    js = js.replace('"inLanguage": ["en", "es"]', '"inLanguage": "es"')
+    js = js.replace('"jobTitle": "Founder"', '"jobTitle": "Fundador"')
+    js = js.replace(
+        "Texas real estate sales agent license #675272-SA",
+        "Licencia de agente de bienes raíces de Texas #675272-SA",
+    )
     return js
 
 
@@ -755,7 +819,7 @@ def schema(page, url):
         "url": SITE + "/",
         "telephone": "+1-817-520-8319",
         "email": EMAIL,
-        "description": "Compramos Casas TX es el sitio en español de Cash Home Advisors, LLC. Compramos casas en Texas tal como están. Pagamos todos los gastos de cierre y podemos cerrar en 7 a 14 días.",
+        "description": ORG_DESCRIPTION,
         "logo": {"@type": "ImageObject", "url": SITE + "/assets/logo-360.png"},
         "image": SITE + "/assets/logo-360.png",
         "founder": {"@id": SITE + "/sobre-nosotros#adrian"},
@@ -932,7 +996,7 @@ def extra_pages(ES):
     pages = [{
         "slug": "",
         "title": "Compramos casas en Texas en efectivo | Compramos Casas TX",
-        "desc": "Compramos casas en Dallas–Fort Worth, Houston, San Antonio, Austin y el resto de Texas. Venda tal como está, sin reparaciones. Pagamos todos los gastos de cierre y podemos cerrar en 7 a 14 días.",
+        "desc": "Compramos Casas TX es el sitio en español de Cash Home Advisors, LLC. Compramos casas en Texas. Venda tal como está, sin reparaciones. Pagamos todos los gastos de cierre. Una persona real le devuelve la llamada.",
         "h1": "Venda su casa rápido por dinero en efectivo",
         "sub": "",
         "body": home_body,
@@ -1384,6 +1448,10 @@ footer .fbrand img{height:96px;width:auto}
 .founder img[src$="logo-360.png"]{width:184px;height:auto;border-radius:0;background:none;object-fit:contain}
 .city-index ul{columns:2;padding-left:1.2rem}
 #datos-locales{border-top:1px solid #e6eaf4}
+.entity-answer{margin:12px 0 0;max-width:70ch;font-size:1.05rem;line-height:1.55;font-weight:600;color:var(--ink)}
+.entity-band{background:#f4f7fb;border-bottom:1px solid #e6eaf4}
+.entity-band .wrap{padding-top:22px;padding-bottom:22px}
+.entity-band .entity-answer{margin:0}
 @media(max-width:700px){.city-index ul{columns:1}}
 """
     (DOCS / "assets/site-es.css").write_text(extra, encoding="utf-8")
@@ -1767,7 +1835,16 @@ def assert_indexable_city_pages(slugs):
 def lint(pages):
     banned = ["el mejor", "número 1", "numero 1", "garantiz", "oficina local", "5709 vandalia", "grand prairie, tx 75052"]
     bad = []
-    for page in pages:
+    checked = list(pages) + [{
+        "slug": "quien-compra",
+        "title": "",
+        "desc": "",
+        "h1": "",
+        "sub": "",
+        "body": ENTITY_ANSWER,
+        "faq": [],
+    }]
+    for page in checked:
         blob = (
             page["title"] + page["desc"] + page["h1"] + (page.get("sub") or "") + page["body"]
             + " ".join(q["a"] for q in page.get("faq") or [])
@@ -1775,8 +1852,188 @@ def lint(pages):
         for word in banned:
             if word in blob:
                 bad.append((page["slug"] or "/", word))
+    if USTED_RE.search(ENTITY_ANSWER.lower()):
+        bad.append(("quien-compra", "informal-tu"))
+    claims = [
+        "Cierre en 7 a 14 días",
+        "Pagamos todos los gastos de cierre",
+        "Venda tal como está, sin reparaciones",
+        "Sin comisiones de agente",
+        "Gratis, sin compromiso",
+        "Una persona real le devuelve la llamada",
+    ]
+    for claim in claims:
+        if claim not in ENTITY_ANSWER:
+            bad.append(("quien-compra", "missing-claim:" + claim))
     if bad:
         raise SystemExit("banned copy: " + repr(bad))
+
+
+def _section_end(fragment, start):
+    depth = 0
+    for match in re.finditer(r"</?section\b[^>]*>", fragment[start:], re.I):
+        if match.group(0).lower().startswith("</"):
+            depth -= 1
+            if depth == 0:
+                return start + match.end()
+        else:
+            depth += 1
+    return None
+
+
+def insert_entity_answer(fragment):
+    if 'id="quien-compra"' in fragment:
+        return fragment
+    paragraph = '<p class="entity-answer">' + ENTITY_ANSWER + "</p>"
+    hero = re.search(r'<section class="hero\b', fragment)
+    if hero:
+        end = _section_end(fragment, hero.start())
+        if end:
+            band = '<section class="entity-band" id="quien-compra"><div class="wrap">' + paragraph + "</div></section>"
+            return fragment[:end] + band + fragment[end:]
+    h1 = re.search(r"</h1>", fragment, re.I)
+    if h1:
+        return fragment[:h1.end()] + paragraph.replace(
+            '<p class="entity-answer">',
+            '<p class="entity-answer" id="quien-compra">',
+            1,
+        ) + fragment[h1.end():]
+    return '<section class="entity-band" id="quien-compra"><div class="wrap">' + paragraph + "</div></section>" + fragment
+
+
+def stamp_quote_pages():
+    """Put the same quotable facts on the pages a Spanish answer would cite."""
+    for rel in QUOTE_PAGES:
+        path = DOCS / rel
+        if not path.exists():
+            raise SystemExit(f"quote page missing: {rel}")
+        text = path.read_text(encoding="utf-8")
+        match = re.search(r'(<main id="main">)(.*)(</main>)', text, re.S)
+        if not match:
+            raise SystemExit(f"no main in {rel}")
+        main = insert_entity_answer(match.group(2))
+        if 'id="quien-compra"' not in main:
+            raise SystemExit(f"entity answer was not inserted in {rel}")
+        path.write_text(text[:match.start(2)] + main + text[match.end(2):], encoding="utf-8")
+
+
+def lint_built_quotes():
+    banned = [
+        "el mejor", "número 1", "numero 1", "garantiz", "oficina local",
+        "5709 vandalia", "grand prairie, tx 75052", "localbusiness",
+        "aggregaterating", "the best", "fastest",
+    ]
+    claims = [
+        "Cierre en 7 a 14 días",
+        "Pagamos todos los gastos de cierre",
+        "Venda tal como está, sin reparaciones",
+        "Sin comisiones de agente",
+        "Gratis, sin compromiso",
+        "Una persona real le devuelve la llamada",
+        "Cash Home Advisors, LLC",
+        "sitio en español",
+        "Texas",
+        "TREC #675272-SA",
+    ]
+    for rel in QUOTE_PAGES:
+        text = (DOCS / rel).read_text(encoding="utf-8")
+        found = re.search(
+            r'<p class="entity-answer"[^>]*>(.*?)</p>',
+            text,
+            re.S,
+        )
+        if not found:
+            raise SystemExit(f"claims lint: no entity paragraph in {rel}")
+        paragraph = re.sub(r"<[^>]+>", "", found.group(1))
+        low = paragraph.lower()
+        for word in banned:
+            if word in low:
+                raise SystemExit(f"claims lint: {rel} entity has '{word}'")
+        if USTED_RE.search(low):
+            raise SystemExit(f"claims lint: {rel} entity uses informal address")
+        for claim in claims:
+            if claim not in paragraph:
+                raise SystemExit(f"claims lint: {rel} missing {claim}")
+        for block in re.findall(r'<script type="application/ld\+json">(.*?)</script>', text, re.S):
+            if "LocalBusiness" in block or "AggregateRating" in block or '"@type": "Review"' in block:
+                raise SystemExit(f"claims lint: rating or local business schema in {rel}")
+            if "buys houses for cash" in block or '"url": "' + EN + '"' in block:
+                raise SystemExit(f"claims lint: English organization facts still in {rel}")
+            if "/about#adrian" in block or "/editorial-policy" in block:
+                raise SystemExit(f"claims lint: English entity URL still in {rel}")
+    home = (DOCS / "index.html").read_text(encoding="utf-8")
+    faq = re.search(r'"@type": "FAQPage".*?</script>', home, re.S)
+    if not faq:
+        raise SystemExit("claims lint: homepage FAQ schema missing")
+    questions = re.findall(r'"name": "(.*?)"', faq.group(0))
+    if not questions or not questions[0].startswith("¿") or "Riesgo de embargoRiesgo" in questions[0]:
+        raise SystemExit("claims lint: homepage FAQ schema is not a real question: " + repr(questions[:1]))
+    llms = (DOCS / "llms.txt").read_text(encoding="utf-8")
+    if llms.count("\n- https://") > 12:
+        raise SystemExit("claims lint: llms.txt still lists too many URLs")
+    for claim in claims[:6]:
+        if claim not in llms:
+            raise SystemExit("claims lint: llms.txt missing " + claim)
+    for _label, url in LLMS_LINKS:
+        if url not in llms:
+            raise SystemExit("claims lint: llms.txt missing " + url)
+    robots = (DOCS / "robots.txt").read_text(encoding="utf-8")
+    for bot in ("Googlebot", "Google-Extended", "Bingbot", "GPTBot", "OAI-SearchBot", "ChatGPT-User", "PerplexityBot"):
+        if f"User-agent: {bot}" not in robots or "Disallow" in robots:
+            raise SystemExit(f"claims lint: robots.txt does not allow {bot}")
+    print("claims lint ok")
+
+
+def write_llms():
+    # A short summary for AI crawlers. llms.txt is not a Google ranking file.
+    lines = [
+        "# Compramos Casas TX",
+        "",
+        "> " + ORG_DESCRIPTION,
+        "",
+        "Empresa legal: Cash Home Advisors, LLC",
+        "Sitio: " + SITE + "/",
+        "Idioma: español",
+        "Sitio en inglés: " + EN + "/",
+        "Teléfono: " + PHONE,
+        "Correo: " + EMAIL,
+        "Licencia: Adrian Luna, agente de bienes raíces de Texas, TREC #675272-SA",
+        "Área: Texas",
+        "",
+        "Afirmaciones:",
+        "- Cierre en 7 a 14 días",
+        "- Pagamos todos los gastos de cierre",
+        "- Venda tal como está, sin reparaciones",
+        "- Sin comisiones de agente",
+        "- Gratis, sin compromiso",
+        "- Una persona real le devuelve la llamada",
+        "",
+        "En una compra en efectivo, Cash Home Advisors, LLC compra como principal. "
+        "No actúa como el agente del vendedor. Puede comprar sola o con un inversionista socio, "
+        "y le dice cuál antes de la firma. El cierre es en una compañía de títulos de Texas.",
+        "",
+        "## Páginas principales",
+    ]
+    for label, url in LLMS_LINKS:
+        lines.append(f"- {label}: {url}")
+    lines.extend(["", "Índice completo: " + SITE + "/sitemap.xml", ""])
+    (DOCS / "llms.txt").write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_robots():
+    bots = (
+        "*",
+        "Googlebot",
+        "Google-Extended",
+        "Bingbot",
+        "GPTBot",
+        "OAI-SearchBot",
+        "ChatGPT-User",
+        "PerplexityBot",
+    )
+    groups = [f"User-agent: {bot}\nAllow: /\n" for bot in bots]
+    text = "\n".join(groups) + "\nSitemap: " + SITE + "/sitemap.xml\n"
+    (DOCS / "robots.txt").write_text(text, encoding="utf-8")
 
 
 def main():
@@ -1830,10 +2087,7 @@ def main():
     }, desk, drawer).replace('content="index, follow', 'content="noindex')
     (DOCS / "404.html").write_text(not_found, encoding="utf-8")
     (DOCS / "CNAME").write_text("www.compramoscasastx.com\n", encoding="utf-8")
-    (DOCS / "robots.txt").write_text(
-        "User-agent: *\nAllow: /\nSitemap: https://www.compramoscasastx.com/sitemap.xml\n",
-        encoding="utf-8",
-    )
+    write_robots()
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
     urls = []
     for path in sorted(DOCS.rglob("*.html")):
@@ -1853,27 +2107,9 @@ def main():
         body.append(f"<url><loc>{url}</loc></url>")
     body.append("</urlset>")
     (DOCS / "sitemap.xml").write_text("\n".join(body) + "\n", encoding="utf-8")
-    lines = [
-        "# Compramos Casas TX",
-        "",
-        "> Sitio en español de Cash Home Advisors, LLC. Compramos casas en Texas tal como están, sin reparaciones. Pagamos todos los gastos de cierre y podemos cerrar en 7 a 14 días. La oferta es gratis y sin compromiso. Una persona real devuelve la llamada.",
-        "",
-        "Empresa legal: Cash Home Advisors, LLC",
-        "Sitio: https://www.compramoscasastx.com/",
-        "Sitio en inglés: https://www.cashhomeadvisors.com/",
-        "Teléfono: (817) 520-8319",
-        "Correo: adrian@cashhomeadvisors.com",
-        "Licencia: Adrian Luna, agente de bienes raíces de Texas, TREC #675272-SA",
-        "Área: Texas, incluidas las 26 áreas metropolitanas del boletín OMB 23-01.",
-        "Índice de ciudades: https://www.compramoscasastx.com/ciudades",
-        "",
-        "No somos el agente del vendedor en una compra en efectivo. Compramos como principal, solos o con un inversionista socio, y lo decimos antes de la firma. El cierre es en una compañía de títulos de Texas.",
-        "",
-        "## Páginas",
-    ]
-    for url in urls:
-        lines.append("- " + url)
-    (DOCS / "llms.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_llms()
+    stamp_quote_pages()
+    lint_built_quotes()
     print(
         f"ported {len(ported)} sitemap {len(urls)} "
         f"new_urls {len(city_pages)} updated_city_pages {updated_cities} area_spans_linked {linked_spans}"

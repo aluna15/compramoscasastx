@@ -10,4 +10,8 @@ footer .fbrand img{height:96px;width:auto}
 .founder img[src$="logo-360.png"]{width:184px;height:auto;border-radius:0;background:none;object-fit:contain}
 .city-index ul{columns:2;padding-left:1.2rem}
 #datos-locales{border-top:1px solid #e6eaf4}
+.entity-answer{margin:12px 0 0;max-width:70ch;font-size:1.05rem;line-height:1.55;font-weight:600;color:var(--ink)}
+.entity-band{background:#f4f7fb;border-bottom:1px solid #e6eaf4}
+.entity-band .wrap{padding-top:22px;padding-bottom:22px}
+.entity-band .entity-answer{margin:0}
 @media(max-width:700px){.city-index ul{columns:1}}
