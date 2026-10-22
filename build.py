@@ -1481,6 +1481,11 @@ footer .fbrand img{height:96px;width:auto}
 .entity-band .wrap{padding-top:22px;padding-bottom:22px}
 .entity-band .entity-answer{margin:0}
 @media(max-width:700px){.city-index ul{columns:1}}
+.town-photos{margin:0 0 30px}
+.town-photos .tp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:12px 0 0}
+.town-photos figure{margin:0;overflow:hidden;border-radius:14px;background:#fff;border:1px solid #e3e8f4}
+.town-photos img{display:block;width:100%;height:170px;object-fit:cover}
+.town-photos figcaption{padding:10px 12px;color:var(--muted);font-size:.8rem;line-height:1.45}
 """
     (DOCS / "assets/site-es.css").write_text(extra, encoding="utf-8")
 
@@ -1649,6 +1654,44 @@ def _related_links(city, slug):
     return "<p>También: " + " · ".join(links) + ".</p>"
 
 
+TOWN_PHOTOS = ROOT / "town_photos.json"
+TOWN_PHOTO_DIR = DOCS / "assets" / "area-photos"
+TOWN_PHOTOS_RE = re.compile(r'<div class="town-photos"><h2>[^<]*</h2><div class="tp-grid">.*?</div>'
+                            r'(?:<p class="tp-note">[^<]*</p>)?</div>', re.S)
+_TOWN_PHOTOS = {}
+
+
+def _town_photos_html(city):
+    """Up to 3 free-licensed Wikimedia Commons photos of the area, each credited with its title, author,
+    source and license (town_photos.json). Returns "" when the town has none."""
+    if not _TOWN_PHOTOS:
+        _TOWN_PHOTOS.update(json.loads(TOWN_PHOTOS.read_text(encoding="utf-8")) if TOWN_PHOTOS.exists() else {})
+    items = _TOWN_PHOTOS.get(city["folder"][len("compramoscasas-"):], [])
+    if not items:
+        return ""
+    figs = []
+    for p in items:
+        if not (TOWN_PHOTO_DIR / p["img"]).exists():
+            raise SystemExit(f"missing area photo {p['img']} for {city['name']}")
+        where = p["caption"] + p["where_es"]
+        who = html.escape(p["author"]) if p["author"] else ""
+        source = f'<a href="{html.escape(p["page"], quote=True)}">Wikimedia Commons</a>'
+        if p["license_code"] == "pd":
+            credit = f"Foto: {who}, dominio público, vía {source}." if who else f"Dominio público, vía {source}."
+        else:
+            lic = f'<a href="{html.escape(p["license_url"], quote=True)}">{html.escape(p["license"])}</a>'
+            credit = f"Foto: {who}, {lic}, vía {source}." if who else f"Foto: {lic}, vía {source}."
+        figs.append(
+            f'<figure><img src="/assets/area-photos/{p["img"]}" width="{p["w"]}" height="{p["h"]}" '
+            f'alt="{html.escape(where, quote=True)}" loading="lazy" decoding="async">'
+            f"<figcaption>«{html.escape(p['caption'])}»{html.escape(p['where_es'])}. {credit}</figcaption></figure>"
+        )
+    return (
+        '<div class="town-photos"><h2>Fotos de la zona</h2>'
+        f'<div class="tp-grid">{"".join(figs)}</div></div>'
+    )
+
+
 def _reject_city_copy(slug, blob):
     banned = [
         "el mejor", "número 1", "numero 1", "garantiz", "oficina local",
@@ -1687,7 +1730,8 @@ def metro_city_pages():
                 raise SystemExit(f"duplicate {label} for {city['name']} and {seen[value]}")
             seen[value] = city["name"]
         facts = _extract_facts(city)
-        _reject_city_copy(slug, title + "\n" + h1 + "\n" + opening + "\n" + facts)
+        photos = _town_photos_html(city)
+        _reject_city_copy(slug, title + "\n" + h1 + "\n" + opening + "\n" + facts + "\n" + photos)
         groups.setdefault(city["metro"], []).append(city)
         if slug in EXISTING_CITY_SLUGS:
             existing[slug] = city
@@ -1698,7 +1742,7 @@ def metro_city_pages():
             "desc": _city_desc(city),
             "h1": h1,
             "sub": opening,
-            "body": "<h2>La ciudad y el condado</h2>\n" + facts + "\n" + _related_links(city, slug),
+            "body": photos + "<h2>La ciudad y el condado</h2>\n" + facts + "\n" + _related_links(city, slug),
             "faq": [],
             "home": False,
             "skip_hreflang": True,
@@ -1798,6 +1842,13 @@ def improve_existing_city_pages(existing):
             if "</main>" not in text:
                 raise SystemExit(f"no main in {slug}")
             text = text.replace("</main>", block + "</main>", 1)
+        photos = _town_photos_html(city)
+        text = TOWN_PHOTOS_RE.sub("", text)
+        if photos:
+            anchor = '<section id="datos-locales"><div class="wrap">'
+            if text.count(anchor) != 1:
+                raise SystemExit(f"no single datos-locales section in {slug}")
+            text = text.replace(anchor, anchor + photos, 1)
         if f"<title>{html.escape(title)}</title>" not in text:
             raise SystemExit(f"title was not updated for {slug}")
         if city["kind"] != "CDP" and _commas(city["pop_2025_07_01"]) not in text:

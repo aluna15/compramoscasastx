@@ -15,3 +15,8 @@ footer .fbrand img{height:96px;width:auto}
 .entity-band .wrap{padding-top:22px;padding-bottom:22px}
 .entity-band .entity-answer{margin:0}
 @media(max-width:700px){.city-index ul{columns:1}}
+.town-photos{margin:0 0 30px}
+.town-photos .tp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:12px 0 0}
+.town-photos figure{margin:0;overflow:hidden;border-radius:14px;background:#fff;border:1px solid #e3e8f4}
+.town-photos img{display:block;width:100%;height:170px;object-fit:cover}
+.town-photos figcaption{padding:10px 12px;color:var(--muted);font-size:.8rem;line-height:1.45}
