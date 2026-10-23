@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Build the Spanish Compramos Casas TX site into docs/ for GitHub Pages."""
+import datetime
+import hashlib
 import html
 import json
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -15,6 +18,13 @@ PHONE = "(817) 520-8319"
 TEL = "+18175208319"
 EMAIL = "adrian@cashhomeadvisors.com"
 GA4_ID = "G-BJY8TC7V1C"
+# IndexNow (Bing and its partners; Google does not take part). The same key as cashhomeadvisors.com. The build
+# writes docs/<key>.txt so a ping for this host can be verified.
+INDEXNOW_KEY = "b8942f5eb02aa07caa4f0af362d07dc5"
+# One company on both sites: this site's Organization names the English site's #business as its parent, and Adrian
+# has one Person @id on both sites, the one on the English /about page.
+EN_BUSINESS = EN + "/#business"
+PERSON_ID = EN + "/about#adrian"
 # Facts a Spanish answer can quote. Approved claims only; no ranking, no address.
 ORG_DESCRIPTION = (
     "Compramos Casas TX es el sitio en español de Cash Home Advisors, LLC. "
@@ -401,6 +411,8 @@ def replace_lead_cards(fragment, fid):
 def homepage_main(ES):
     raw = (CHA / "docs/index.html").read_text(encoding="utf-8")
     main = re.search(r'<main id="main">(.*)</main>', raw, re.S).group(1)
+    # The English home's "who buys" line under the claim tiles. This site says it in its own quien-compra band.
+    main = re.sub(r'<p class="entity-answer" id="who-we-are">.*?</p>', "", main, flags=re.S)
     main = apply_es_fragment(main, ES)
     main = replace_lead_cards(main, "hero")
     main = main.replace("/assets/cha-logo-360.png", "/assets/logo-360.png")
@@ -426,11 +438,12 @@ def faqs_from_html(fragment):
 
 
 def rewrite_jsonld(js):
+    # Adrian's Person @id is the English /about record on both sites: keep it out of the path swaps below.
+    js = js.replace(PERSON_ID, "@@PERSON_ID@@")
     for path in sorted(OUR_PATHS, key=len, reverse=True):
         if path.startswith("/assets"):
             continue
         js = js.replace(EN + path, SITE + path)
-    js = js.replace(EN + "/about#adrian", SITE + "/sobre-nosotros#adrian")
     js = js.replace(EN + "/about", SITE + "/sobre-nosotros")
     js = js.replace(EN + "/editorial-policy", SITE + "/politica-editorial")
     js = js.replace(EN + "/#business", SITE + "/#business")
@@ -441,7 +454,6 @@ def rewrite_jsonld(js):
     js = js.replace("/assets/cha-logo-900.png", "/assets/logo-900.png")
     js = js.replace('"name": "Cash Home Advisors"', '"name": "Compramos Casas TX"')
     # Domain swap above turns /about into a Spanish-host path before the English-host replace runs.
-    js = js.replace(SITE + "/about#adrian", SITE + "/sobre-nosotros#adrian")
     js = js.replace(SITE + "/editorial-policy", SITE + "/politica-editorial")
     js = js.replace(SITE + "/about", SITE + "/sobre-nosotros")
     js = js.replace('"url": "' + EN + '"', '"url": "' + SITE + '/"')
@@ -452,7 +464,20 @@ def rewrite_jsonld(js):
         "Texas real estate sales agent license #675272-SA",
         "Licencia de agente de bienes raíces de Texas #675272-SA",
     )
-    return js
+    js = js.replace("@@PERSON_ID@@", PERSON_ID)
+    return unify_sitewide(js)
+
+
+def unify_sitewide(js):
+    """A ported page carries the English site's #business and #website records, renamed above. Swap in this site's
+    own, so every page has the same Organization (with its parentOrganization) and WebSite."""
+    data = json.loads(js)
+    nodes = data.get("@graph")
+    own = {SITE + "/#business": org_node(), SITE + "/#website": web_node()}
+    if not isinstance(nodes, list) or not any(n.get("@id") in own for n in nodes):
+        return js
+    data["@graph"] = [own.get(n.get("@id"), n) for n in nodes]
+    return json.dumps(data, ensure_ascii=False)
 
 
 def ga4_snippet():
@@ -831,8 +856,8 @@ def form(fid):
 """
 
 
-def schema(page, url):
-    org = {
+def org_node():
+    return {
         "@type": "Organization",
         "@id": SITE + "/#business",
         "name": "Compramos Casas TX",
@@ -843,7 +868,8 @@ def schema(page, url):
         "description": ORG_DESCRIPTION,
         "logo": {"@type": "ImageObject", "url": SITE + "/assets/logo-360.png"},
         "image": SITE + "/assets/logo-360.png",
-        "founder": {"@id": SITE + "/sobre-nosotros#adrian"},
+        "founder": {"@id": PERSON_ID},
+        "parentOrganization": {"@id": EN_BUSINESS},
         "knowsLanguage": ["es", "en"],
         "areaServed": {"@type": "State", "name": "Texas"},
         "publishingPrinciples": SITE + "/politica-editorial",
@@ -853,7 +879,10 @@ def schema(page, url):
             "https://www.yelp.com/biz/cash-home-advisors-kennedale",
         ],
     }
-    web = {
+
+
+def web_node():
+    return {
         "@type": "WebSite",
         "@id": SITE + "/#website",
         "url": SITE + "/",
@@ -861,11 +890,14 @@ def schema(page, url):
         "inLanguage": "es",
         "publisher": {"@id": SITE + "/#business"},
     }
-    graph = [org, web]
+
+
+def schema(page, url):
+    graph = [org_node(), web_node()]
     if page["slug"] == "sobre-nosotros":
         graph.append({
             "@type": "Person",
-            "@id": SITE + "/sobre-nosotros#adrian",
+            "@id": PERSON_ID,
             "name": "Adrian Luna",
             "jobTitle": "Fundador",
             "worksFor": {"@id": SITE + "/#business"},
@@ -2038,7 +2070,8 @@ def lint_built_quotes():
                 raise SystemExit(f"claims lint: rating or local business schema in {rel}")
             if "buys houses for cash" in block or '"url": "' + EN + '"' in block:
                 raise SystemExit(f"claims lint: English organization facts still in {rel}")
-            if "/about#adrian" in block or "/editorial-policy" in block:
+            # The shared Person @id is the one English URL allowed here (see PERSON_ID).
+            if "/about#adrian" in block.replace(PERSON_ID, "") or "/editorial-policy" in block:
                 raise SystemExit(f"claims lint: English entity URL still in {rel}")
     home = (DOCS / "index.html").read_text(encoding="utf-8")
     faq = re.search(r'"@type": "FAQPage".*?</script>', home, re.S)
@@ -2061,6 +2094,174 @@ def lint_built_quotes():
         if f"User-agent: {bot}" not in robots or "Disallow" in robots:
             raise SystemExit(f"claims lint: robots.txt does not allow {bot}")
     print("claims lint ok")
+
+
+def lint_entity_links():
+    """Every page: this site's Organization names the English #business as its parent, and Adrian has the one
+    Person @id both sites use. The IndexNow key file is in docs/."""
+    def nodes(value):
+        if isinstance(value, dict):
+            yield value
+            for v in value.values():
+                yield from nodes(v)
+        elif isinstance(value, list):
+            for v in value:
+                yield from nodes(v)
+    pages = 0
+    for path in sorted(DOCS.rglob("*.html")):
+        rel = path.relative_to(DOCS).as_posix()
+        text = path.read_text(encoding="utf-8")
+        if "sobre-nosotros#adrian" in text:
+            raise SystemExit(f"entity lint: old Person @id in {rel}")
+        orgs = 0
+        for block in re.findall(r'<script type="application/ld\+json">(.*?)</script>', text, re.S):
+            for node in nodes(json.loads(block)):
+                node_id = node.get("@id", "")
+                if node_id.endswith("#adrian") and node_id != PERSON_ID:
+                    raise SystemExit(f"entity lint: Person @id {node_id} in {rel}")
+                if node.get("@type") == "Organization" and node_id == SITE + "/#business" and "founder" in node:
+                    orgs += 1
+                    if node != org_node():
+                        raise SystemExit(f"entity lint: #business record differs from org_node() in {rel}")
+                if node.get("@type") == "WebSite" and node_id == SITE + "/#website" and node != web_node():
+                    raise SystemExit(f"entity lint: #website record differs from web_node() in {rel}")
+        if orgs != 1:
+            raise SystemExit(f"entity lint: {orgs} #business records in {rel}")
+        pages += 1
+    org = org_node()
+    if org["parentOrganization"] != {"@id": EN_BUSINESS} or org["founder"] != {"@id": PERSON_ID}:
+        raise SystemExit("entity lint: org_node() lost its parentOrganization or founder")
+    if SITE + "/" in org["sameAs"]:
+        raise SystemExit("entity lint: the Organization names its own site in sameAs")
+    key = DOCS / (INDEXNOW_KEY + ".txt")
+    if not re.fullmatch(r"[0-9a-f]{32}", INDEXNOW_KEY) or not key.exists() or key.read_text(encoding="utf-8") != INDEXNOW_KEY:
+        raise SystemExit("entity lint: IndexNow key file missing or wrong")
+    print(f"entity lint ok ({pages} pages)")
+
+
+# Sitemap <lastmod>, the same rule as cashhomeadvisors.com (seo.page_fingerprint there): the day a page's title,
+# description, page-specific JSON-LD, or the text and links of <main> last changed. Lead forms, the sitewide
+# Organization/WebSite/Person records and asset ?v= stamps are left out, so a sitewide edit does not re-date
+# every page. page_dates.json keeps {path: [fingerprint, YYYY-MM-DD]}; when it is missing, the build seeds it from
+# the git history of docs/. A page that is new or changed gets the build date.
+PAGE_DATES = ROOT / "page_dates.json"
+ASSET_STAMP = re.compile(r"\?v=[0-9a-f]{8}")
+SITEWIDE_LD = re.compile(
+    r'^\{"@context": "https://schema\.org", "@graph": \[\{"@type": "(?:Organization|Person)", '
+    r'"@id": "[^"]*(?:/#business|#adrian)"'
+)
+PERSON_REF = re.compile(r'"@id": "[^"]*#adrian"')
+BIZ_PUBLISHER = re.compile(r'"publisher": \{"@type": "[A-Za-z]+", "@id": "([^"]*/#business)"(?:[^{}]|\{[^{}]*\})*\}')
+
+
+def _drop_divs(s, opener):
+    """`s` without each <div ...> that starts with `opener`, nested divs included (unbalanced markup is left)."""
+    while (m := re.search(opener, s)):
+        depth = 0
+        for t in re.finditer(r"<(/?)div\b[^>]*>", s[m.start():]):
+            depth += -1 if t.group(1) else 1
+            if depth == 0:
+                s = s[:m.start()] + " " + s[m.start() + t.end():]
+                break
+        else:
+            return s
+    return s
+
+
+def page_fingerprint(h):
+    title = re.search(r"(?s)<title>(.*?)</title>", h)
+    desc = re.search(r'<meta name="description" content="([^"]*)"', h)
+    ld = [
+        PERSON_REF.sub('"@id": "#adrian"', BIZ_PUBLISHER.sub(r'"publisher": {"@id": "\1"}', x))
+        for x in re.findall(r'(?s)<script type="application/ld\+json">(.*?)</script>', h)
+        if not SITEWIDE_LD.search(x)
+    ]
+    m = re.search(r"(?s)<main\b[^>]*>(.*)</main>", h)
+    main = _drop_divs(m.group(1) if m else "", r'<div class="card lead-card"')
+    main = re.sub(r"(?s)<form\b.*?</form>", " ", main)
+    main = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", main)
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", main))
+    blob = "\n".join([title.group(1) if title else "", desc.group(1) if desc else "", *ld, text,
+                      *re.findall(r'href="([^"]*)"', main)])
+    return hashlib.sha1(ASSET_STAMP.sub("", blob).encode("utf-8")).hexdigest()[:16]
+
+
+def url_path(rel):
+    """docs-relative file -> URL path."""
+    rel = rel[:-len(".html")]
+    if rel == "index":
+        return "/"
+    if rel.endswith("/index"):
+        return "/" + rel[:-len("index")]
+    return "/" + rel
+
+
+def _git(*args):
+    r = subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        raise SystemExit("git " + " ".join(args) + " failed: " + r.stderr.strip())
+    return r.stdout
+
+
+def seed_dates(rev="HEAD"):
+    """page_dates.json from git history: for every page at <rev>, the commit date of the oldest commit in the
+    newest run of commits whose page has the same fingerprint."""
+    hist, cur = {}, None
+    for line in _git("log", "--format=@%H %cs", "--name-only", rev, "--", "docs").splitlines():
+        if line.startswith("@"):
+            cur = line[1:].split()
+        elif line.endswith(".html") and cur:
+            hist.setdefault(line, []).append(cur)
+    cat = subprocess.Popen(["git", "-C", str(ROOT), "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+    def blob(sha, f):
+        cat.stdin.write(f"{sha}:{f}\n".encode())
+        cat.stdin.flush()
+        head = cat.stdout.readline().split()
+        if len(head) < 3 or head[1] != b"blob":
+            return None
+        data = cat.stdout.read(int(head[2]))
+        cat.stdout.read(1)
+        return data.decode("utf-8", "replace")
+
+    state = {}
+    for f in _git("ls-tree", "-r", "--name-only", rev, "docs").splitlines():
+        if not f.endswith(".html") or f.endswith("/404.html") or f not in hist:
+            continue
+        now = blob(rev, f)
+        if now is None:
+            continue
+        fp, day = page_fingerprint(now), hist[f][0][1]
+        for sha, d in hist[f][1:]:
+            old = blob(sha, f)
+            if old is None or page_fingerprint(old) != fp:
+                break
+            day = d
+        state[url_path(f[len("docs/"):])] = [fp, day]
+    cat.stdin.close()
+    cat.wait()
+    return state
+
+
+def page_dates(paths):
+    """{url path: YYYY-MM-DD} for the sitemap. A page whose fingerprint matches page_dates.json keeps its date;
+    a new or changed page gets today (the build date)."""
+    today = datetime.date.today().isoformat()
+    try:
+        state = json.loads(PAGE_DATES.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = seed_dates()
+    new = {}
+    for path in paths:
+        rel = path.relative_to(DOCS).as_posix()
+        fp = page_fingerprint(path.read_text(encoding="utf-8"))
+        old = state.get(url_path(rel))
+        new[url_path(rel)] = [fp, old[1] if old and old[0] == fp else today]
+    PAGE_DATES.write_text(
+        "{\n" + ",\n".join(f"{json.dumps(k)}: {json.dumps(v)}" for k, v in sorted(new.items())) + "\n}\n",
+        encoding="utf-8",
+    )
+    return {k: v[1] for k, v in new.items()}
 
 
 def write_llms():
@@ -2166,29 +2367,25 @@ def main():
     }, desk, drawer).replace('content="index, follow', 'content="noindex')
     (DOCS / "404.html").write_text(not_found, encoding="utf-8")
     (DOCS / "CNAME").write_text("www.compramoscasastx.com\n", encoding="utf-8")
+    (DOCS / (INDEXNOW_KEY + ".txt")).write_text(INDEXNOW_KEY, encoding="utf-8")
     write_robots()
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
-    urls = []
-    for path in sorted(DOCS.rglob("*.html")):
-        if path.name == "404.html":
-            continue
-        rel = path.relative_to(DOCS)
-        if rel.name == "index.html":
-            parent = rel.parent.as_posix()
-            urls.append(SITE + "/" if parent == "." else SITE + "/" + parent + "/")
-        else:
-            urls.append(SITE + "/" + rel.with_suffix("").as_posix())
+    pages = [path for path in sorted(DOCS.rglob("*.html")) if path.name != "404.html"]
     missing = check_internal_links()
     if missing:
         raise SystemExit("missing internal links: " + repr(missing[:30]) + f" count={len(missing)}")
-    body = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
-    for url in urls:
-        body.append(f"<url><loc>{url}</loc></url>")
-    body.append("</urlset>")
-    (DOCS / "sitemap.xml").write_text("\n".join(body) + "\n", encoding="utf-8")
     write_llms()
     stamp_quote_pages()
     lint_built_quotes()
+    lint_entity_links()
+    # After stamp_quote_pages, so a lastmod reads the page as it ships.
+    lastmod = page_dates(pages)
+    urls = [SITE + url_path(path.relative_to(DOCS).as_posix()) for path in pages]
+    body = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for url in urls:
+        body.append(f"<url><loc>{url}</loc><lastmod>{lastmod[url[len(SITE):]]}</lastmod></url>")
+    body.append("</urlset>")
+    (DOCS / "sitemap.xml").write_text("\n".join(body) + "\n", encoding="utf-8")
     print(
         f"ported {len(ported)} sitemap {len(urls)} "
         f"new_urls {len(city_pages)} updated_city_pages {updated_cities} area_spans_linked {linked_spans}"
